@@ -304,90 +304,108 @@ def parse_dates_in_jobiqo(df):
 # ============================================================================
 
 def create_filter_panel(df, key_prefix, default_months=6):
-    """Create a reusable filter panel for all tabs."""
+    """Create a reusable filter panel for all tabs with compact 3-column layout."""
     st.subheader("🔍 Filters")
 
     filters = {}
 
-    # Date Range Filter
-    if 'event_date' in df.columns and pd.api.types.is_datetime64_any_dtype(df['event_date']):
-        min_date = df['event_date'].min().date()
-        max_date = df['event_date'].max().date()
-        default_start = (datetime.now() - timedelta(days=default_months*30)).date()
-        default_start = max(default_start, min_date)
+    # Row 1: Date Range, Importer, Company
+    col1, col2, col3 = st.columns(3)
 
-        filters['date_range'] = st.date_input(
-            "Date Range",
-            [default_start, max_date],
-            min_value=min_date,
-            max_value=max_date,
-            key=f'{key_prefix}_date'
+    with col1:
+        # Date Range Filter
+        if 'event_date' in df.columns and pd.api.types.is_datetime64_any_dtype(df['event_date']):
+            min_date = df['event_date'].min().date()
+            max_date = df['event_date'].max().date()
+            default_start = (datetime.now() - timedelta(days=default_months*30)).date()
+            default_start = max(default_start, min_date)
+
+            filters['date_range'] = st.date_input(
+                "Date Range",
+                [default_start, max_date],
+                min_value=min_date,
+                max_value=max_date,
+                key=f'{key_prefix}_date'
+            )
+
+    with col2:
+        # Importer Filter
+        if 'importer_name' in df.columns:
+            importers = sorted(df['importer_name'].dropna().unique())
+            filters['importer'] = st.multiselect(
+                "Importer",
+                importers,
+                key=f'{key_prefix}_importer'
+            )
+
+    with col3:
+        # Company Filter
+        if 'organization_name' in df.columns:
+            companies = sorted(df['organization_name'].dropna().unique())
+            filters['company'] = st.multiselect(
+                "Company",
+                companies,
+                key=f'{key_prefix}_company'
+            )
+
+    # Row 2: Region, Occupation, Upgrades
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        # Region Filter
+        if 'uk_region' in df.columns:
+            regions = sorted(df['uk_region'].dropna().unique())
+            filters['region'] = st.multiselect(
+                "Region",
+                regions,
+                key=f'{key_prefix}_region'
+            )
+
+    with col2:
+        # Occupation Filter
+        if 'occupation' in df.columns:
+            occupations = sorted(df['occupation'].dropna().unique())
+            filters['occupation'] = st.multiselect(
+                "Occupation",
+                occupations,
+                key=f'{key_prefix}_occupation'
+            )
+
+    with col3:
+        # Upgrades Filter
+        if 'upgrades_list' in df.columns:
+            all_upgrades = set()
+            for upgrades in df['upgrades_list']:
+                all_upgrades.update(upgrades)
+            upgrade_options = sorted(list(all_upgrades))
+            filters['upgrades'] = st.multiselect(
+                "Upgrades",
+                upgrade_options,
+                key=f'{key_prefix}_upgrades'
+            )
+
+    # Row 3: Job Title Search and Apply Button
+    col1, col2, col3 = st.columns([2, 1, 1])
+
+    with col1:
+        # Job Title Search
+        filters['job_title'] = st.text_input(
+            "Job Title (search)",
+            key=f'{key_prefix}_title',
+            placeholder="e.g., Housing Director"
         )
 
-    # Importer Filter
-    if 'importer_name' in df.columns:
-        importers = sorted(df['importer_name'].dropna().unique())
-        filters['importer'] = st.multiselect(
-            "Importer",
-            importers,
-            key=f'{key_prefix}_importer'
+    with col2:
+        # Apply button
+        st.write("")  # Spacer to align button
+        apply_clicked = st.button(
+            "🔄 Apply Filters",
+            key=f'{key_prefix}_apply',
+            type="primary",
+            use_container_width=True
         )
-
-    # Company Filter
-    if 'organization_name' in df.columns:
-        companies = sorted(df['organization_name'].dropna().unique())
-        filters['company'] = st.multiselect(
-            "Company",
-            companies,
-            key=f'{key_prefix}_company'
-        )
-
-    # Region Filter
-    if 'uk_region' in df.columns:
-        regions = sorted(df['uk_region'].dropna().unique())
-        filters['region'] = st.multiselect(
-            "Region",
-            regions,
-            key=f'{key_prefix}_region'
-        )
-
-    # Occupation Filter
-    if 'occupation' in df.columns:
-        occupations = sorted(df['occupation'].dropna().unique())
-        filters['occupation'] = st.multiselect(
-            "Occupation",
-            occupations,
-            key=f'{key_prefix}_occupation'
-        )
-
-    # Upgrades Filter
-    if 'upgrades_list' in df.columns:
-        all_upgrades = set()
-        for upgrades in df['upgrades_list']:
-            all_upgrades.update(upgrades)
-        upgrade_options = sorted(list(all_upgrades))
-        filters['upgrades'] = st.multiselect(
-            "Upgrades",
-            upgrade_options,
-            key=f'{key_prefix}_upgrades'
-        )
-
-    # Job Title Search
-    filters['job_title'] = st.text_input(
-        "Job Title (search)",
-        key=f'{key_prefix}_title',
-        placeholder="e.g., Housing Director"
-    )
 
     st.markdown("---")
-
-    # Apply button
-    apply_clicked = st.button(
-        "🔄 Apply Filters",
-        key=f'{key_prefix}_apply',
-        type="primary",
-        width='stretch'
-    )
 
     return filters, apply_clicked
 

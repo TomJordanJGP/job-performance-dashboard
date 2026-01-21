@@ -29,12 +29,30 @@ SCOPES = [
 # DATA LOADING FUNCTIONS
 # ============================================================================
 
-@st.cache_resource
+@st.cache_resource(ttl=None)
 def get_bigquery_client():
     """Initialize and cache the BigQuery client."""
+    import os
+
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    service_account_path = os.path.join(script_dir, 'service_account.json')
+
+    # Verify file exists
+    if not os.path.exists(service_account_path):
+        st.error(f"❌ File does not exist at: {service_account_path}")
+        st.stop()
+
     try:
         # Try Streamlit secrets first (for cloud deployment)
-        if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
+        use_secrets = False
+        try:
+            if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
+                use_secrets = True
+        except:
+            use_secrets = False
+
+        if use_secrets:
             creds = Credentials.from_service_account_info(
                 st.secrets['gcp_service_account'],
                 scopes=SCOPES
@@ -42,24 +60,35 @@ def get_bigquery_client():
         else:
             # Fall back to local file (for local development)
             creds = Credentials.from_service_account_file(
-                'service_account.json',
+                service_account_path,
                 scopes=SCOPES
             )
+
         client = bigquery.Client(credentials=creds, project=BQ_PROJECT_ID)
         return client
-    except FileNotFoundError:
-        st.error("⚠️ Service account credentials not found. Please add them to Streamlit secrets or service_account.json")
+    except FileNotFoundError as e:
+        st.error(f"⚠️ Service account credentials not found at: {service_account_path}")
+        st.error("Please add them to Streamlit secrets or place service_account.json in the app directory")
+        st.code(f"Expected location: {service_account_path}")
+        st.code(f"Error: {repr(e)}")
         st.stop()
     except Exception as e:
-        st.error(f"Error initializing BigQuery client: {str(e)}")
+        st.error(f"❌ Unexpected error initializing BigQuery client: {type(e).__name__}")
+        st.error(f"Error message: {str(e)}")
+        st.code(f"Attempted to load from: {service_account_path}")
+        st.code(f"Full error: {repr(e)}")
         st.stop()
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
-def load_data_from_bigquery(days_back=90):
+def load_data_from_bigquery(days_back=30, sample_size=None):
     """Load data from BigQuery enriched table with date filter.
 
     The enriched table is partitioned by event_date_parsed for fast queries.
     It includes all metadata and parsed location fields.
+
+    Args:
+        days_back: Number of days to look back
+        sample_size: If set, limit the result to this many rows (for testing)
     """
     try:
         client = get_bigquery_client()
@@ -86,15 +115,63 @@ def load_data_from_bigquery(days_back=90):
         cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
 
         query = f"""
-        SELECT *
+        SELECT
+            entity_id_str,
+            event_date_parsed,
+            event_name,
+            title_export,
+            organization_name,
+            location_region_matched,
+            occupational_fields_export,
+            importer_ID,
+            publishing_date,
+            expiration_date,
+            workflow_state,
+            upgrades
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
         WHERE event_date_parsed >= '{cutoff_date}'
+        AND event_name IN ('job_visit', 'job_apply_start')
         """
 
-        st.info(f"📊 Loading data for last {days_back} days from enriched table...")
+        # Add LIMIT clause if sampling
+        if sample_size:
+            query += f"\nLIMIT {sample_size}"
 
-        with st.spinner('Querying BigQuery...'):
-            df = client.query(query).to_dataframe(create_bqstorage_client=False)
+        info_msg = f"📊 Loading data for last {days_back} days from enriched table"
+        if sample_size:
+            info_msg += f" (sampling {sample_size:,} rows)"
+        st.info(info_msg + "...")
+
+        # Create progress indicators
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        # Stage 1: Start query
+        status_text.text("Starting BigQuery query... 0%")
+        progress_bar.progress(10)
+
+        # Stage 2: Submit query
+        query_job = client.query(query)
+        status_text.text("Query submitted, waiting for results... 30%")
+        progress_bar.progress(30)
+
+        # Stage 3: Wait for completion
+        query_job.result()
+        status_text.text("Query complete, fetching data... 60%")
+        progress_bar.progress(60)
+
+        # Stage 4: Convert to dataframe
+        df = query_job.to_dataframe(create_bqstorage_client=False)
+        status_text.text("Processing data... 90%")
+        progress_bar.progress(90)
+
+        # Stage 5: Complete
+        progress_bar.progress(100)
+        status_text.text(f"Complete! Loaded {len(df):,} rows")
+
+        # Clean up progress indicators immediately
+        progress_bar.empty()
+        status_text.empty()
 
         st.success(f"✅ Loaded {len(df):,} rows from BigQuery (partitioned table)")
         return df
@@ -208,10 +285,12 @@ def add_occupation_column(df):
 
 def parse_dates_in_jobiqo(df):
     """Parse start and end dates from Jobiqo data."""
+    if 'event_date' in df.columns:
+        df['event_date'] = pd.to_datetime(df['event_date'], errors='coerce', utc=True).dt.tz_localize(None)
     if 'start_date' in df.columns:
-        df['start_date'] = pd.to_datetime(df['start_date'], errors='coerce')
+        df['start_date'] = pd.to_datetime(df['start_date'], errors='coerce', utc=True).dt.tz_localize(None)
     if 'end_date' in df.columns:
-        df['end_date'] = pd.to_datetime(df['end_date'], errors='coerce')
+        df['end_date'] = pd.to_datetime(df['end_date'], errors='coerce', utc=True).dt.tz_localize(None)
     return df
 
 # ============================================================================
@@ -383,46 +462,41 @@ def remove_outliers_iqr(data):
 
 
 def calculate_metrics(df):
-    """Calculate key metrics from dataframe with robust statistics."""
+    """Calculate key metrics from dataframe with robust statistics (optimized)."""
     entity_col = 'entity_id' if 'entity_id' in df.columns else df.columns[0]
 
     metrics = {}
     metrics['num_vacancies'] = df[entity_col].nunique()
 
     if 'event_name' in df.columns:
-        metrics['total_clicks'] = len(df[df['event_name'] == 'job_visit'])
-        metrics['total_applies'] = len(df[df['event_name'] == 'job_apply_start'])
+        # Vectorized counting
+        event_counts = df['event_name'].value_counts()
+        metrics['total_clicks'] = event_counts.get('job_visit', 0)
+        metrics['total_applies'] = event_counts.get('job_apply_start', 0)
     else:
         metrics['total_clicks'] = len(df)
         metrics['total_applies'] = 0
 
     metrics['apply_click_ratio'] = (metrics['total_applies'] / metrics['total_clicks'] * 100) if metrics['total_clicks'] > 0 else 0
 
-    # Calculate per-vacancy metrics with robust statistics
-    if metrics['num_vacancies'] > 0:
-        # Get clicks and applies for each vacancy
-        vacancy_clicks = []
-        vacancy_applies = []
+    # Calculate per-vacancy metrics with robust statistics (vectorized)
+    if metrics['num_vacancies'] > 0 and 'event_name' in df.columns:
+        # Vectorized groupby operations (much faster than loops)
+        clicks_by_vacancy = df[df['event_name'] == 'job_visit'].groupby(entity_col).size()
+        applies_by_vacancy = df[df['event_name'] == 'job_apply_start'].groupby(entity_col).size()
 
-        for entity_id in df[entity_col].unique():
-            entity_df = df[df[entity_col] == entity_id]
-            if 'event_name' in df.columns:
-                clicks = len(entity_df[entity_df['event_name'] == 'job_visit'])
-                applies = len(entity_df[entity_df['event_name'] == 'job_apply_start'])
-            else:
-                clicks = len(entity_df)
-                applies = 0
-
-            vacancy_clicks.append(clicks)
-            vacancy_applies.append(applies)
+        # Fill missing vacancies with 0
+        all_vacancies = df[entity_col].unique()
+        vacancy_clicks = clicks_by_vacancy.reindex(all_vacancies, fill_value=0).values
+        vacancy_applies = applies_by_vacancy.reindex(all_vacancies, fill_value=0).values
 
         # Median (robust to outliers)
-        metrics['median_clicks_per_vacancy'] = np.median(vacancy_clicks) if vacancy_clicks else 0
-        metrics['median_applies_per_vacancy'] = np.median(vacancy_applies) if vacancy_applies else 0
+        metrics['median_clicks_per_vacancy'] = np.median(vacancy_clicks) if len(vacancy_clicks) > 0 else 0
+        metrics['median_applies_per_vacancy'] = np.median(vacancy_applies) if len(vacancy_applies) > 0 else 0
 
         # Mean with outlier removal (IQR method)
-        clicks_no_outliers = remove_outliers_iqr(vacancy_clicks)
-        applies_no_outliers = remove_outliers_iqr(vacancy_applies)
+        clicks_no_outliers = remove_outliers_iqr(vacancy_clicks.tolist())
+        applies_no_outliers = remove_outliers_iqr(vacancy_applies.tolist())
 
         metrics['mean_clicks_per_vacancy'] = np.mean(clicks_no_outliers) if clicks_no_outliers else 0
         metrics['mean_applies_per_vacancy'] = np.mean(applies_no_outliers) if applies_no_outliers else 0
@@ -441,50 +515,46 @@ def calculate_metrics(df):
     return metrics
 
 def calculate_quartile_metrics(df):
-    """Calculate metrics by performance quartiles (top 25%, middle 50%, bottom 25%)."""
+    """Calculate metrics by performance quartiles (top 25%, middle 50%, bottom 25%) - optimized."""
     entity_col = 'entity_id' if 'entity_id' in df.columns else df.columns[0]
 
-    # Get clicks for each vacancy
-    vacancy_clicks = {}
-    vacancy_applies = {}
+    if 'event_name' not in df.columns:
+        return None
 
-    for entity_id in df[entity_col].unique():
-        entity_df = df[df[entity_col] == entity_id]
-        if 'event_name' in df.columns:
-            clicks = len(entity_df[entity_df['event_name'] == 'job_visit'])
-            applies = len(entity_df[entity_df['event_name'] == 'job_apply_start'])
-        else:
-            clicks = len(entity_df)
-            applies = 0
+    # Vectorized groupby operations
+    clicks_by_vacancy = df[df['event_name'] == 'job_visit'].groupby(entity_col).size()
+    applies_by_vacancy = df[df['event_name'] == 'job_apply_start'].groupby(entity_col).size()
 
-        vacancy_clicks[entity_id] = clicks
-        vacancy_applies[entity_id] = applies
+    # Fill missing vacancies with 0
+    all_vacancies = df[entity_col].unique()
+    vacancy_clicks = clicks_by_vacancy.reindex(all_vacancies, fill_value=0)
+    vacancy_applies = applies_by_vacancy.reindex(all_vacancies, fill_value=0)
 
     # Calculate quartile thresholds based on clicks
-    clicks_values = list(vacancy_clicks.values())
-    if len(clicks_values) < 4:
+    if len(vacancy_clicks) < 4:
         return None  # Need at least 4 vacancies for quartiles
 
-    q1_threshold = np.percentile(clicks_values, 25)
-    q3_threshold = np.percentile(clicks_values, 75)
+    q1_threshold = vacancy_clicks.quantile(0.25)
+    q3_threshold = vacancy_clicks.quantile(0.75)
 
-    # Categorize vacancies
-    top_25_ids = [vid for vid, clicks in vacancy_clicks.items() if clicks >= q3_threshold]
-    middle_50_ids = [vid for vid, clicks in vacancy_clicks.items() if q1_threshold <= clicks < q3_threshold]
-    bottom_25_ids = [vid for vid, clicks in vacancy_clicks.items() if clicks < q1_threshold]
+    # Categorize vacancies using vectorized operations
+    top_25_mask = vacancy_clicks >= q3_threshold
+    middle_50_mask = (vacancy_clicks >= q1_threshold) & (vacancy_clicks < q3_threshold)
+    bottom_25_mask = vacancy_clicks < q1_threshold
 
     # Calculate metrics for each quartile
     quartiles = {}
 
-    for name, ids in [('top_25', top_25_ids), ('middle_50', middle_50_ids), ('bottom_25', bottom_25_ids)]:
-        total_clicks = sum(vacancy_clicks[vid] for vid in ids)
-        total_applies = sum(vacancy_applies[vid] for vid in ids)
+    for name, mask in [('top_25', top_25_mask), ('middle_50', middle_50_mask), ('bottom_25', bottom_25_mask)]:
+        ids = vacancy_clicks[mask].index
+        total_clicks = vacancy_clicks[mask].sum()
+        total_applies = vacancy_applies[ids].sum()
         num_vacancies = len(ids)
 
         quartiles[name] = {
             'num_vacancies': num_vacancies,
-            'total_clicks': total_clicks,
-            'total_applies': total_applies,
+            'total_clicks': int(total_clicks),
+            'total_applies': int(total_applies),
             'apply_click_ratio': (total_applies / total_clicks * 100) if total_clicks > 0 else 0,
             'clicks_per_vacancy': total_clicks / num_vacancies if num_vacancies > 0 else 0,
             'applies_per_vacancy': total_applies / num_vacancies if num_vacancies > 0 else 0
@@ -515,6 +585,9 @@ def create_overview_tab(df):
     """Create the Overview Dashboard tab."""
     st.header("📊 Overview Dashboard")
 
+    # Debug info
+    st.info(f"📋 Dataset contains {len(df):,} total rows")
+
     # Filters in sidebar/expander
     with st.expander("🔍 Filters", expanded=True):
         filters, apply_clicked = create_filter_panel(df, 'overview')
@@ -527,9 +600,21 @@ def create_overview_tab(df):
     else:
         filtered_df = df.copy()
 
+    # Show filtered row count
+    st.info(f"📊 Showing {len(filtered_df):,} rows after filters")
+
     # Calculate metrics
     metrics = calculate_metrics(filtered_df)
     quartiles = calculate_quartile_metrics(filtered_df)
+
+    # Debug: Show what we got
+    with st.expander("🔧 Debug Info", expanded=False):
+        st.write("**Available columns:**")
+        st.write(filtered_df.columns.tolist())
+        st.write("**Metrics calculated:**")
+        st.json(metrics)
+        st.write("**Sample data (first 5 rows):**")
+        st.dataframe(filtered_df.head())
 
     # KPI Cards with Quartile Breakdown
     st.subheader("Key Performance Indicators")
@@ -761,6 +846,9 @@ def create_deep_dive_tab(df):
     """Create the Deep Dive tab."""
     st.header("🔍 Deep Dive")
 
+    # Debug info
+    st.info(f"📋 Dataset contains {len(df):,} total rows")
+
     # Filters
     with st.expander("🔍 Filters", expanded=True):
         filters, apply_clicked = create_filter_panel(df, 'deepdive')
@@ -772,6 +860,9 @@ def create_deep_dive_tab(df):
         filtered_df = apply_filters_to_data(df, st.session_state.deepdive_filters)
     else:
         filtered_df = df.copy()
+
+    # Show filtered row count
+    st.info(f"📊 Showing {len(filtered_df):,} rows after filters")
 
     # Benchmark Comparison Table
     st.subheader("📊 Benchmark Comparison Table")
@@ -870,6 +961,9 @@ def create_vacancy_performance_tab(df):
     """Create the Vacancy Performance tab."""
     st.header("📋 Vacancy Performance")
 
+    # Debug info
+    st.info(f"📋 Dataset contains {len(df):,} total rows")
+
     # Filters
     with st.expander("🔍 Filters", expanded=True):
         filters, apply_clicked = create_filter_panel(df, 'vacancy')
@@ -881,6 +975,9 @@ def create_vacancy_performance_tab(df):
         filtered_df = apply_filters_to_data(df, st.session_state.vacancy_filters)
     else:
         filtered_df = df.copy()
+
+    # Show filtered row count
+    st.info(f"📊 Showing {len(filtered_df):,} rows after filters")
 
     # Separate clicks and applies
     clicks_df = filtered_df[filtered_df['event_name'] == 'job_visit'].copy() if 'event_name' in filtered_df.columns else filtered_df.copy()
@@ -947,22 +1044,28 @@ def create_vacancy_performance_tab(df):
 
     vacancy_df = pd.DataFrame(vacancy_data)
 
+    # Check if we have any data
+    if len(vacancy_df) == 0:
+        st.warning("⚠️ No vacancy data found for the selected filters. Try adjusting your date range or filters.")
+        return
+
     # Calculate occupation averages (within filtered date range)
     occupation_stats = {}
-    for occupation in vacancy_df['Occupation'].unique():
-        occ_vacancies = vacancy_df[vacancy_df['Occupation'] == occupation]
-        occupation_stats[occupation] = {
-            'avg_clicks': occ_vacancies['Clicks'].mean(),
-            'avg_applies': occ_vacancies['Applies'].mean()
-        }
+    if 'Occupation' in vacancy_df.columns:
+        for occupation in vacancy_df['Occupation'].unique():
+            occ_vacancies = vacancy_df[vacancy_df['Occupation'] == occupation]
+            occupation_stats[occupation] = {
+                'avg_clicks': occ_vacancies['Clicks'].mean(),
+                'avg_applies': occ_vacancies['Applies'].mean()
+            }
 
-    # Add occupation averages to each row
-    vacancy_df['Avg Clicks (Occupation)'] = vacancy_df['Occupation'].map(
-        lambda x: round(occupation_stats.get(x, {}).get('avg_clicks', 0), 1)
-    )
-    vacancy_df['Avg Applies (Occupation)'] = vacancy_df['Occupation'].map(
-        lambda x: round(occupation_stats.get(x, {}).get('avg_applies', 0), 1)
-    )
+        # Add occupation averages to each row
+        vacancy_df['Avg Clicks (Occupation)'] = vacancy_df['Occupation'].map(
+            lambda x: round(occupation_stats.get(x, {}).get('avg_clicks', 0), 1)
+        )
+        vacancy_df['Avg Applies (Occupation)'] = vacancy_df['Occupation'].map(
+            lambda x: round(occupation_stats.get(x, {}).get('avg_applies', 0), 1)
+        )
 
     vacancy_df = vacancy_df.sort_values('Clicks', ascending=False)
 
@@ -998,6 +1101,7 @@ def create_vacancy_performance_tab(df):
 def create_comparison_tab(df):
     """Create the Comparison tab."""
     st.header("⚖️ Comparison")
+    st.info(f"📋 Dataset contains {len(df):,} total rows")
     st.info("💡 Select filters for each side, then click Apply Filters to compare")
 
     col_left, col_right = st.columns(2)
@@ -1138,18 +1242,73 @@ def create_comparison_tab(df):
 def main():
     st.title("📊 Job Performance Dashboard")
 
-    # Load data
-    with st.spinner("Loading data..."):
-        df_raw = load_data_from_bigquery()
-        importer_mapping = load_importer_mapping()
+    # Sidebar - Data Loading Controls
+    st.sidebar.header("⚙️ Data Loading Settings")
 
-        # Process enriched data
-        df = df_raw.copy()
-        df = prepare_enriched_data(df)  # Rename enriched table columns
-        df = apply_importer_mapping(df, importer_mapping)
-        df = parse_upgrades(df)
-        df = parse_dates_in_jobiqo(df)  # Parse timestamp columns
-        df = add_occupation_column(df)
+    days_back = st.sidebar.slider(
+        "Days to Load",
+        min_value=7,
+        max_value=90,
+        value=30,
+        step=7,
+        help="Number of days of historical data to load from BigQuery"
+    )
+
+    # Sampling option for faster testing
+    enable_sampling = st.sidebar.checkbox(
+        "Enable Sampling (Faster)",
+        value=False,
+        help="Limit data to a sample for faster loading during testing"
+    )
+
+    sample_size = None
+    if enable_sampling:
+        sample_size = st.sidebar.number_input(
+            "Sample Size (rows)",
+            min_value=1000,
+            max_value=100000,
+            value=10000,
+            step=1000,
+            help="Number of rows to sample from BigQuery"
+        )
+
+    # Load data with progress indicators
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+
+    status_text.text("Loading data from BigQuery... 0%")
+    df_raw = load_data_from_bigquery(days_back=days_back, sample_size=sample_size)
+    progress_bar.progress(40)
+
+    status_text.text("Loading importer mapping... 40%")
+    importer_mapping = load_importer_mapping()
+    progress_bar.progress(50)
+
+    # Process enriched data
+    status_text.text("Preparing enriched data... 50%")
+    df = df_raw.copy()
+    df = prepare_enriched_data(df)  # Rename enriched table columns
+    progress_bar.progress(60)
+
+    status_text.text("Applying importer mapping... 60%")
+    df = apply_importer_mapping(df, importer_mapping)
+    progress_bar.progress(70)
+
+    status_text.text("Parsing upgrades... 70%")
+    df = parse_upgrades(df)
+    progress_bar.progress(80)
+
+    status_text.text("Parsing dates... 80%")
+    df = parse_dates_in_jobiqo(df)  # Parse timestamp columns
+    progress_bar.progress(90)
+
+    status_text.text("Adding occupation column... 90%")
+    df = add_occupation_column(df)
+    progress_bar.progress(100)
+
+    status_text.text("✅ Data loaded successfully!")
+    progress_bar.empty()
+    status_text.empty()
 
     # Initialize session state for all tabs
     for tab_prefix in ['overview', 'deepdive', 'vacancy', 'comp_left', 'comp_right']:
@@ -1157,9 +1316,13 @@ def main():
             st.session_state[f'{tab_prefix}_filters'] = None
 
     # Sidebar
-    st.sidebar.header("Dashboard Info")
+    st.sidebar.markdown("---")
+    st.sidebar.header("📊 Dashboard Info")
     st.sidebar.info(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     st.sidebar.metric("Total Records", f"{len(df):,}")
+
+    if enable_sampling:
+        st.sidebar.warning(f"⚠️ Sampling enabled: showing {len(df):,} of all records")
 
     if st.sidebar.button("🔄 Refresh Data"):
         st.cache_data.clear()

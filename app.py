@@ -66,7 +66,7 @@ def load_data_from_bigquery(days_back=180):  # Default 6 months
 
         query = f"""
         SELECT
-            events.*,
+            events.* EXCEPT(organization_id),
             metadata.title,
             metadata.workflow_state,
             metadata.occupational_fields,

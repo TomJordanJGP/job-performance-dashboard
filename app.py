@@ -57,30 +57,9 @@ def get_bigquery_client():
         st.error(f"Error initializing BigQuery client: {str(e)}")
         st.stop()
 
-@st.cache_data(ttl=86400)  # Cache for 24 hours
-def load_historical_data():
-    """Load historical data (older than 90 days) - cached for 24 hours."""
-    try:
-        client = get_bigquery_client()
-        cutoff_date = (datetime.now() - timedelta(days=90)).strftime('%Y%m%d')
-
-        query = f"""
-        SELECT *
-        FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
-        WHERE event_date < '{cutoff_date}'
-        """
-
-        st.info("📦 Loading historical data (>90 days old, cached for 24 hours)...")
-        df = client.query(query).to_dataframe(create_bqstorage_client=False)
-        st.success(f"✅ Loaded {len(df):,} historical rows (cached)")
-        return df
-    except Exception as e:
-        st.warning(f"⚠️ Could not load historical data: {str(e)}")
-        return pd.DataFrame()
-
 @st.cache_data(ttl=3600)  # Cache for 1 hour
-def load_recent_data(days_back=90):
-    """Load recent data (last 90 days) - cached for 1 hour."""
+def load_data_from_bigquery(days_back=90):
+    """Load data from BigQuery with date filter - optimized for fast loading."""
     try:
         client = get_bigquery_client()
         cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
@@ -91,39 +70,12 @@ def load_recent_data(days_back=90):
         WHERE event_date >= '{cutoff_date}'
         """
 
-        st.info(f"📊 Loading recent data (last {days_back} days)...")
-        df = client.query(query).to_dataframe(create_bqstorage_client=False)
-        st.success(f"✅ Loaded {len(df):,} recent rows")
-        return df
-    except Exception as e:
-        st.error(f"❌ Error loading recent data: {str(e)}")
-        st.stop()
+        st.info(f"📊 Loading data for last {days_back} days...")
 
-@st.cache_data(ttl=3600)
-def load_data_from_bigquery(days_back=180):
-    """Combine historical and recent data for efficient loading."""
-    try:
-        # Load historical data (cached for 24 hours)
-        historical_df = load_historical_data()
+        with st.spinner('Querying BigQuery...'):
+            df = client.query(query).to_dataframe(create_bqstorage_client=False)
 
-        # Load recent data (cached for 1 hour)
-        recent_df = load_recent_data(90)
-
-        # Combine datasets
-        if len(historical_df) > 0:
-            df = pd.concat([historical_df, recent_df], ignore_index=True)
-            st.info(f"📊 Combined {len(historical_df):,} historical + {len(recent_df):,} recent = {len(df):,} total rows")
-        else:
-            df = recent_df
-
-        # Filter to requested date range
-        if days_back < 180:
-            cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
-            df['event_date_str'] = df['event_date'].astype(str)
-            df = df[df['event_date_str'] >= cutoff_date].copy()
-            df = df.drop(columns=['event_date_str'])
-            st.info(f"📊 Filtered to last {days_back} days: {len(df):,} rows")
-
+        st.success(f"✅ Loaded {len(df):,} rows from BigQuery")
         return df
     except Exception as e:
         st.error(f"❌ Error loading data: {str(e)}")

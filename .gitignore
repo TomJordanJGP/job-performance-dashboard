@@ -1,0 +1,31 @@
+# Credentials - NEVER commit these!
+service_account.json
+*.json
+!package.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Data files (optional - you can commit CSV if it's not sensitive)
+# jobs-export.csv

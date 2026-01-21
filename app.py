@@ -49,7 +49,9 @@ def get_bigquery_client():
         try:
             if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
                 use_secrets = True
-        except:
+                st.info("✅ Using Streamlit secrets for authentication")
+        except Exception as e:
+            st.warning(f"⚠️ Secrets check failed: {str(e)}")
             use_secrets = False
 
         if use_secrets:
@@ -59,6 +61,7 @@ def get_bigquery_client():
             )
         else:
             # Fall back to local file (for local development)
+            st.info(f"📁 Using local file for authentication: {service_account_path}")
             creds = Credentials.from_service_account_file(
                 service_account_path,
                 scopes=SCOPES

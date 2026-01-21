@@ -36,14 +36,22 @@ SCOPES = [
 def get_bigquery_client():
     """Initialize and cache the BigQuery client."""
     try:
-        creds = Credentials.from_service_account_file(
-            'service_account.json',
-            scopes=SCOPES
-        )
+        # Try Streamlit secrets first (for cloud deployment)
+        if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
+            creds = Credentials.from_service_account_info(
+                st.secrets['gcp_service_account'],
+                scopes=SCOPES
+            )
+        else:
+            # Fall back to local file (for local development)
+            creds = Credentials.from_service_account_file(
+                'service_account.json',
+                scopes=SCOPES
+            )
         client = bigquery.Client(credentials=creds, project=BQ_PROJECT_ID)
         return client
     except FileNotFoundError:
-        st.error("⚠️ Service account credentials not found.")
+        st.error("⚠️ Service account credentials not found. Please add them to Streamlit secrets or service_account.json")
         st.stop()
     except Exception as e:
         st.error(f"Error initializing BigQuery client: {str(e)}")
@@ -93,10 +101,20 @@ def load_importer_mapping():
 
 @st.cache_data(ttl=300)
 def load_jobiqo_export():
-    """Load Jobiqo export data from CSV file."""
+    """Load Jobiqo export data from CSV file.
+    NOTE: jobs-export.csv is too large for GitHub (135MB).
+    For production, use BigQuery job_metadata table instead.
+    See scripts/SETUP_INSTRUCTIONS.md for migration guide.
+    """
     try:
+        # Try to load CSV if it exists locally (for development)
         jobiqo_df = pd.read_csv('jobs-export.csv', low_memory=False)
         return jobiqo_df
+    except FileNotFoundError:
+        # CSV not found - return empty dataframe
+        # This is expected in production where we use BigQuery metadata table
+        st.warning("⚠️ jobs-export.csv not found. Some metadata fields may be missing. Consider migrating to BigQuery job_metadata table.")
+        return pd.DataFrame()
     except Exception:
         return pd.DataFrame()
 

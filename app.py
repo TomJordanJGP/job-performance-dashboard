@@ -6,9 +6,6 @@ from google.cloud import bigquery
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-import sys
-sys.path.append('.')
-from utils.region_parser import extract_region_from_address
 
 # Page configuration
 st.set_page_config(
@@ -21,7 +18,7 @@ st.set_page_config(
 # BigQuery configuration
 BQ_PROJECT_ID = "site-monitoring-421401"
 BQ_DATASET_ID = "job_data_export"
-BQ_TABLE_ID = "job_performance_details_combined"
+BQ_TABLE_ID = "job_performance_enriched"
 
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets.readonly',
@@ -59,30 +56,27 @@ def get_bigquery_client():
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def load_data_from_bigquery(days_back=90):
-    """Load data from BigQuery with date filter.
+    """Load data from BigQuery enriched table with date filter.
 
-    NOTE: Table is not partitioned, so queries scan entire table (~946K rows).
-    This causes slow loading. See scripts/partition_table.sql for optimization.
+    The enriched table is partitioned by event_date_parsed for fast queries.
+    It includes all metadata and parsed location fields.
     """
     try:
         client = get_bigquery_client()
-        cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
+        cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
 
-        # Temporary: Add LIMIT to prevent timeout while table is unpartitioned
         query = f"""
         SELECT *
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
-        WHERE event_date >= '{cutoff_date}'
-        LIMIT 100000
+        WHERE event_date_parsed >= '{cutoff_date}'
         """
 
-        st.info(f"📊 Loading data for last {days_back} days (max 100K rows)...")
-        st.warning("⚠️ Table is unpartitioned - queries may be slow. Consider partitioning for better performance.")
+        st.info(f"📊 Loading data for last {days_back} days from enriched table...")
 
         with st.spinner('Querying BigQuery...'):
             df = client.query(query).to_dataframe(create_bqstorage_client=False)
 
-        st.success(f"✅ Loaded {len(df):,} rows from BigQuery")
+        st.success(f"✅ Loaded {len(df):,} rows from BigQuery (partitioned table)")
         return df
     except Exception as e:
         st.error(f"❌ Error loading data: {str(e)}")
@@ -107,14 +101,6 @@ def load_importer_mapping():
         st.error(f"Error loading importer mapping: {e}")
         return {}
 
-@st.cache_data(ttl=300)
-def load_jobiqo_export():
-    """Load Jobiqo export data from CSV file.
-    NOTE: This function is deprecated. Job metadata is now loaded from BigQuery
-    via the job_metadata table in load_data_from_bigquery().
-    """
-    # Return empty dataframe - metadata comes from BigQuery now
-    return pd.DataFrame()
 
 # ============================================================================
 # DATA PROCESSING FUNCTIONS
@@ -162,73 +148,26 @@ def parse_upgrades(df):
 
     return df
 
-def merge_jobiqo_data(df, jobiqo_df):
-    """Merge Jobiqo export data with main data."""
-    if jobiqo_df.empty:
-        return df
+def prepare_enriched_data(df):
+    """Prepare enriched data by renaming columns for dashboard compatibility."""
+    df = df.copy()
 
-    if 'job_id' in jobiqo_df.columns:
-        jobiqo_df = jobiqo_df.rename(columns={'job_id': 'entity_id'})
+    # Rename enriched table columns to match dashboard expectations
+    column_mapping = {
+        'entity_id_str': 'entity_id',
+        'event_date_parsed': 'event_date',
+        'title_export': 'title',
+        'location_region_matched': 'uk_region',
+        'occupational_fields_export': 'occupational_fields',
+        'publishing_date': 'start_date',
+        'expiration_date': 'end_date'
+    }
 
-    join_key = 'entity_id'
-
-    if join_key in df.columns and join_key in jobiqo_df.columns:
-        # Select columns to merge, including occupation and workflow_state
-        columns_to_merge = ['entity_id', 'title', 'publishing_date', 'expiration_date',
-                           'organization_profile_name', 'locations']
-
-        # Add optional columns if they exist
-        if 'occupational_fields' in jobiqo_df.columns:
-            columns_to_merge.append('occupational_fields')
-        if 'workflow_state' in jobiqo_df.columns:
-            columns_to_merge.append('workflow_state')
-
-        jobiqo_subset = jobiqo_df[columns_to_merge].copy()
-
-        jobiqo_subset = jobiqo_subset.rename(columns={
-            'publishing_date': 'start_date',
-            'expiration_date': 'end_date',
-            'organization_profile_name': 'organization_name_jobiqo',
-            'locations': 'location_full'
-        })
-
-        df = df.merge(jobiqo_subset, on=join_key, how='left', suffixes=('', '_from_jobiqo'))
+    # Only rename columns that exist
+    existing_renames = {k: v for k, v in column_mapping.items() if k in df.columns}
+    df = df.rename(columns=existing_renames)
 
     return df
-
-def parse_date_column(df, date_col='event_date'):
-    """Parse date column."""
-    if date_col in df.columns:
-        df[date_col] = pd.to_datetime(df[date_col].astype(str), format='%Y%m%d', errors='coerce')
-    return df
-
-def add_uk_regions(df):
-    """Add UK region column based on address from Jobiqo locations."""
-    def parse_location(location):
-        if not location or pd.isna(location):
-            return 'Unknown'
-
-        locations = str(location).split('|')
-        regions = []
-        for loc in locations:
-            region = extract_region_from_address(loc.strip())
-            if region != 'Unknown':
-                regions.append(region)
-
-        if regions:
-            unique_regions = list(set(regions))
-            return unique_regions[0]
-        return 'Unknown'
-
-    if 'location_full' in df.columns:
-        df['uk_region'] = df['location_full'].apply(parse_location)
-    elif 'regions' in df.columns:
-        df['uk_region'] = df['regions'].apply(extract_region_from_address)
-    else:
-        df['uk_region'] = 'Unknown'
-
-    return df
-
 
 def add_occupation_column(df):
     """Extract occupation field from occupational_fields column."""
@@ -1177,15 +1116,13 @@ def main():
     with st.spinner("Loading data..."):
         df_raw = load_data_from_bigquery()
         importer_mapping = load_importer_mapping()
-        jobiqo_df = load_jobiqo_export()
 
+        # Process enriched data
         df = df_raw.copy()
+        df = prepare_enriched_data(df)  # Rename enriched table columns
         df = apply_importer_mapping(df, importer_mapping)
         df = parse_upgrades(df)
-        df = merge_jobiqo_data(df, jobiqo_df)
-        df = parse_date_column(df)
-        df = parse_dates_in_jobiqo(df)
-        df = add_uk_regions(df)
+        df = parse_dates_in_jobiqo(df)  # Parse timestamp columns
         df = add_occupation_column(df)
 
     # Initialize session state for all tabs

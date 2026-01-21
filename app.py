@@ -59,18 +59,25 @@ def get_bigquery_client():
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def load_data_from_bigquery(days_back=90):
-    """Load data from BigQuery with date filter - optimized for fast loading."""
+    """Load data from BigQuery with date filter.
+
+    NOTE: Table is not partitioned, so queries scan entire table (~946K rows).
+    This causes slow loading. See scripts/partition_table.sql for optimization.
+    """
     try:
         client = get_bigquery_client()
         cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
 
+        # Temporary: Add LIMIT to prevent timeout while table is unpartitioned
         query = f"""
         SELECT *
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
         WHERE event_date >= '{cutoff_date}'
+        LIMIT 100000
         """
 
-        st.info(f"📊 Loading data for last {days_back} days...")
+        st.info(f"📊 Loading data for last {days_back} days (max 100K rows)...")
+        st.warning("⚠️ Table is unpartitioned - queries may be slow. Consider partitioning for better performance.")
 
         with st.spinner('Querying BigQuery...'):
             df = client.query(query).to_dataframe(create_bqstorage_client=False)

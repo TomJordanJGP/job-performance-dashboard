@@ -38,11 +38,6 @@ def get_bigquery_client():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     service_account_path = os.path.join(script_dir, 'service_account.json')
 
-    # Verify file exists
-    if not os.path.exists(service_account_path):
-        st.error(f"❌ File does not exist at: {service_account_path}")
-        st.stop()
-
     try:
         # Try Streamlit secrets first (for cloud deployment)
         use_secrets = False
@@ -62,6 +57,16 @@ def get_bigquery_client():
         else:
             # Fall back to local file (for local development)
             st.info(f"📁 Using local file for authentication: {service_account_path}")
+
+            # Check if file exists before trying to use it
+            if not os.path.exists(service_account_path):
+                st.error(f"❌ No authentication found!")
+                st.error(f"Local file does not exist at: {service_account_path}")
+                st.error("Please either:")
+                st.error("1. Add secrets to Streamlit Cloud (Settings → Secrets), OR")
+                st.error("2. Add service_account.json file to the app directory")
+                st.stop()
+
             creds = Credentials.from_service_account_file(
                 service_account_path,
                 scopes=SCOPES

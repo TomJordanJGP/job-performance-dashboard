@@ -65,13 +65,12 @@ def load_data_from_bigquery(days_back=180):  # Default 6 months
         cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
 
         query = f"""
-        WITH events_filtered AS (
-            SELECT *
-            FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
-            WHERE event_date >= '{cutoff_date}'
-        )
         SELECT
-            events_filtered.* EXCEPT(organization_id),
+            events.entity_id,
+            events.event_date,
+            events.event_name,
+            events.importer_ID,
+            events.upgrades,
             metadata.title,
             metadata.workflow_state,
             metadata.occupational_fields,
@@ -79,12 +78,12 @@ def load_data_from_bigquery(days_back=180):  # Default 6 months
             metadata.publishing_date,
             metadata.expiration_date,
             metadata.organization_profile_name,
-            metadata.organization_id,
+            metadata.organization_id AS metadata_organization_id,
             metadata.employment_type
-        FROM events_filtered
+        FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}` AS events
         LEFT JOIN `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.job_metadata` AS metadata
-            ON CAST(events_filtered.entity_id AS STRING) = metadata.entity_id
-        ORDER BY events_filtered.event_date DESC
+            ON CAST(events.entity_id AS STRING) = metadata.entity_id
+        WHERE events.event_date >= '{cutoff_date}'
         """
 
         st.info(f"📊 Querying BigQuery (last {days_back} days)...")

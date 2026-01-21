@@ -1139,119 +1139,7 @@ def create_vacancy_performance_tab(df, full_df=None):
     )
 
 # ============================================================================
-# TAB 4: GEOGRAPHY
-# ============================================================================
-
-def create_geography_tab(df):
-    """Create the Geography tab with UK regional map."""
-    st.header("🗺️ Geography")
-
-    # Filters
-    with st.expander("🔍 Filters", expanded=True):
-        filters, apply_clicked = create_filter_panel(df, 'geography')
-
-    # Apply filters
-    if apply_clicked or 'geography_filters' in st.session_state:
-        if apply_clicked:
-            st.session_state.geography_filters = filters
-        filtered_df = apply_filters_to_data(df, st.session_state.geography_filters)
-    else:
-        filtered_df = df.copy()
-
-    # Calculate metrics by region
-    if 'uk_region' in filtered_df.columns and 'entity_id' in filtered_df.columns:
-        region_data = []
-        for region in filtered_df['uk_region'].dropna().unique():
-            reg_df = filtered_df[filtered_df['uk_region'] == region]
-            reg_metrics = calculate_metrics(reg_df)
-            region_data.append({
-                'Region': region,
-                'Vacancies': reg_metrics['num_vacancies'],
-                'Clicks': reg_metrics['total_clicks'],
-                'Applies': reg_metrics['total_applies'],
-                'Apply/Click %': reg_metrics['apply_click_ratio'],
-                'Clicks/Vac': reg_metrics['clicks_per_vacancy'],
-                'Applies/Vac': reg_metrics['applies_per_vacancy']
-            })
-
-        region_df = pd.DataFrame(region_data).sort_values('Vacancies', ascending=False)
-
-        # Summary metrics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Regions", len(region_df))
-        with col2:
-            st.metric("Total Vacancies", f"{region_df['Vacancies'].sum():,}")
-        with col3:
-            st.metric("Total Clicks", f"{region_df['Clicks'].sum():,}")
-        with col4:
-            st.metric("Total Applies", f"{region_df['Applies'].sum():,}")
-
-        st.markdown("---")
-
-        # Create choropleth map
-        st.subheader("🗺️ UK Regional Distribution")
-
-        metric_choice = st.selectbox(
-            "Select metric to display on map:",
-            ['Vacancies', 'Clicks', 'Applies', 'Clicks/Vac', 'Applies/Vac', 'Apply/Click %'],
-            key='geography_metric'
-        )
-
-        # Create the map
-        fig = px.choropleth(
-            region_df,
-            locations='Region',
-            locationmode='country names',
-            color=metric_choice,
-            hover_name='Region',
-            hover_data={
-                'Region': False,
-                'Vacancies': ':,',
-                'Clicks': ':,',
-                'Applies': ':,',
-                'Clicks/Vac': ':.1f',
-                'Applies/Vac': ':.2f',
-                'Apply/Click %': ':.2f'
-            },
-            color_continuous_scale='YlOrRd',
-            title=f'{metric_choice} by UK Region'
-        )
-
-        # Focus on UK
-        fig.update_geos(
-            center=dict(lat=54.5, lon=-2),
-            projection_scale=6,
-            visible=False,
-            resolution=50,
-            showcountries=False,
-            showcoastlines=False,
-            showland=False,
-            fitbounds="locations"
-        )
-
-        fig.update_layout(height=600)
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.markdown("---")
-
-        # Regional data table
-        st.subheader("📊 Regional Performance Data")
-        st.dataframe(region_df, use_container_width=True, hide_index=True)
-
-        # Export
-        csv = region_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            "📥 Download Regional Data",
-            csv,
-            f"regional_performance_{datetime.now().strftime('%Y%m%d')}.csv",
-            "text/csv"
-        )
-    else:
-        st.warning("⚠️ No regional data available in the dataset.")
-
-# ============================================================================
-# TAB 5: COMPARISON
+# TAB 4: COMPARISON
 # ============================================================================
 
 def create_comparison_tab(df):
@@ -1466,7 +1354,7 @@ def main():
     status_text.empty()
 
     # Initialize session state for all tabs
-    for tab_prefix in ['overview', 'deepdive', 'vacancy', 'geography', 'comp_left', 'comp_right']:
+    for tab_prefix in ['overview', 'deepdive', 'vacancy', 'comp_left', 'comp_right']:
         if f'{tab_prefix}_filters' not in st.session_state:
             st.session_state[f'{tab_prefix}_filters'] = None
 
@@ -1521,11 +1409,10 @@ def main():
                 st.write(f"'{name}': {count} records")
 
     # Tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Overview",
         "🔍 Deep Dive",
         "📋 Vacancy Performance",
-        "🗺️ Geography",
         "⚖️ Comparison"
     ])
 
@@ -1539,9 +1426,6 @@ def main():
         create_vacancy_performance_tab(df, full_df=df)
 
     with tab4:
-        create_geography_tab(df)
-
-    with tab5:
         create_comparison_tab(df)
 
 if __name__ == "__main__":

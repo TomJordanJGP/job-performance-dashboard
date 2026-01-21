@@ -143,11 +143,6 @@ def load_data_from_bigquery(days_back=30, sample_size=None):
         if sample_size:
             query += f"\nLIMIT {sample_size}"
 
-        info_msg = f"📊 Loading data for last {days_back} days from enriched table"
-        if sample_size:
-            info_msg += f" (sampling {sample_size:,} rows)"
-        st.info(info_msg + "...")
-
         # Create progress indicators
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -179,7 +174,6 @@ def load_data_from_bigquery(days_back=30, sample_size=None):
         progress_bar.empty()
         status_text.empty()
 
-        st.success(f"✅ Loaded {len(df):,} rows from BigQuery (partitioned table)")
         return df
     except Exception as e:
         st.error(f"❌ Error loading data: {str(e)}")
@@ -417,19 +411,11 @@ def apply_filters_to_data(df, filters):
 
     filtered = df.copy()
 
-    # Date Range Filter (vacancy must be active during period, events must occur during period)
+    # Date Range Filter (show vacancies that had events within the date range)
     if filters.get('date_range') and len(filters['date_range']) == 2:
         start_date, end_date = filters['date_range']
 
-        # Filter 1: Vacancy must be active during the date range
-        if 'start_date' in filtered.columns and 'end_date' in filtered.columns:
-            # Vacancy overlaps with selected date range
-            filtered = filtered[
-                (filtered['start_date'] <= pd.Timestamp(end_date)) &
-                (filtered['end_date'] >= pd.Timestamp(start_date))
-            ]
-
-        # Filter 2: Only count events within the date range
+        # Only filter by when events occurred (not when vacancy was active)
         if 'event_date' in filtered.columns and pd.api.types.is_datetime64_any_dtype(filtered['event_date']):
             filtered = filtered[
                 (filtered['event_date'].dt.date >= start_date) &
@@ -609,9 +595,6 @@ def create_overview_tab(df):
     """Create the Overview Dashboard tab."""
     st.header("📊 Overview Dashboard")
 
-    # Debug info
-    st.info(f"📋 Dataset contains {len(df):,} total rows")
-
     # Filters in sidebar/expander
     with st.expander("🔍 Filters", expanded=True):
         filters, apply_clicked = create_filter_panel(df, 'overview')
@@ -623,9 +606,6 @@ def create_overview_tab(df):
         filtered_df = apply_filters_to_data(df, st.session_state.overview_filters)
     else:
         filtered_df = df.copy()
-
-    # Show filtered row count
-    st.info(f"📊 Showing {len(filtered_df):,} rows after filters")
 
     # Calculate metrics
     metrics = calculate_metrics(filtered_df)
@@ -870,9 +850,6 @@ def create_deep_dive_tab(df):
     """Create the Deep Dive tab."""
     st.header("🔍 Deep Dive")
 
-    # Debug info
-    st.info(f"📋 Dataset contains {len(df):,} total rows")
-
     # Filters
     with st.expander("🔍 Filters", expanded=True):
         filters, apply_clicked = create_filter_panel(df, 'deepdive')
@@ -884,9 +861,6 @@ def create_deep_dive_tab(df):
         filtered_df = apply_filters_to_data(df, st.session_state.deepdive_filters)
     else:
         filtered_df = df.copy()
-
-    # Show filtered row count
-    st.info(f"📊 Showing {len(filtered_df):,} rows after filters")
 
     # Benchmark Comparison Table
     st.subheader("📊 Benchmark Comparison Table")
@@ -922,7 +896,7 @@ def create_deep_dive_tab(df):
             })
 
         benchmark_df = pd.DataFrame(benchmark_data).sort_values('Median Clicks/Vac', ascending=False)
-        st.dataframe(benchmark_df, width='stretch', height=400)
+        st.dataframe(benchmark_df, use_container_width=True)
 
         # Export
         csv = benchmark_df.to_csv(index=False).encode('utf-8')
@@ -985,9 +959,6 @@ def create_vacancy_performance_tab(df):
     """Create the Vacancy Performance tab."""
     st.header("📋 Vacancy Performance")
 
-    # Debug info
-    st.info(f"📋 Dataset contains {len(df):,} total rows")
-
     # Filters
     with st.expander("🔍 Filters", expanded=True):
         filters, apply_clicked = create_filter_panel(df, 'vacancy')
@@ -999,9 +970,6 @@ def create_vacancy_performance_tab(df):
         filtered_df = apply_filters_to_data(df, st.session_state.vacancy_filters)
     else:
         filtered_df = df.copy()
-
-    # Show filtered row count
-    st.info(f"📊 Showing {len(filtered_df):,} rows after filters")
 
     # Separate clicks and applies
     clicks_df = filtered_df[filtered_df['event_name'] == 'job_visit'].copy() if 'event_name' in filtered_df.columns else filtered_df.copy()
@@ -1125,7 +1093,6 @@ def create_vacancy_performance_tab(df):
 def create_comparison_tab(df):
     """Create the Comparison tab."""
     st.header("⚖️ Comparison")
-    st.info(f"📋 Dataset contains {len(df):,} total rows")
     st.info("💡 Select filters for each side, then click Apply Filters to compare")
 
     col_left, col_right = st.columns(2)
@@ -1352,8 +1319,11 @@ def main():
     except:
         st.sidebar.info("🔐 Authentication: Local File")
 
+    # Data loading info
+    st.sidebar.info(f"📊 Loaded last {days_back} days")
+    st.sidebar.metric("Total Events", f"{len(df):,}")
+    st.sidebar.metric("Unique Vacancies", f"{df['entity_id'].nunique():,}")
     st.sidebar.info(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    st.sidebar.metric("Total Records", f"{len(df):,}")
 
     if enable_sampling:
         st.sidebar.warning(f"⚠️ Sampling enabled: showing {len(df):,} of all records")

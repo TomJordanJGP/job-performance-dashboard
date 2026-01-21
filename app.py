@@ -215,7 +215,7 @@ def create_filter_panel(df, key_prefix, default_months=6):
 
     # Importer Filter
     if 'importer_name' in df.columns:
-        importers = sorted(df['importer_name'].unique())
+        importers = sorted(df['importer_name'].dropna().unique())
         filters['importer'] = st.multiselect(
             "Importer",
             importers,
@@ -233,7 +233,7 @@ def create_filter_panel(df, key_prefix, default_months=6):
 
     # Region Filter
     if 'uk_region' in df.columns:
-        regions = sorted(df['uk_region'].unique())
+        regions = sorted(df['uk_region'].dropna().unique())
         filters['region'] = st.multiselect(
             "Region",
             regions,

@@ -44,9 +44,7 @@ def get_bigquery_client():
         try:
             if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
                 use_secrets = True
-                st.info("✅ Using Streamlit secrets for authentication")
         except Exception as e:
-            st.warning(f"⚠️ Secrets check failed: {str(e)}")
             use_secrets = False
 
         if use_secrets:
@@ -56,7 +54,7 @@ def get_bigquery_client():
             )
         else:
             # Fall back to local file (for local development)
-            st.info(f"📁 Using local file for authentication: {service_account_path}")
+            pass
 
             # Check if file exists before trying to use it
             if not os.path.exists(service_account_path):
@@ -1326,6 +1324,16 @@ def main():
     # Sidebar
     st.sidebar.markdown("---")
     st.sidebar.header("📊 Dashboard Info")
+
+    # Authentication status
+    try:
+        if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
+            st.sidebar.success("🔐 Authentication: Streamlit Secrets")
+        else:
+            st.sidebar.info("🔐 Authentication: Local File")
+    except:
+        st.sidebar.info("🔐 Authentication: Local File")
+
     st.sidebar.info(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     st.sidebar.metric("Total Records", f"{len(df):,}")
 

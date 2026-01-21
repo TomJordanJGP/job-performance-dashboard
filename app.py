@@ -641,7 +641,7 @@ def create_overview_tab(df):
 
         # Row 2: Top 25% (Best Performers)
         st.markdown("### 🟢 Top 25% Performers")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
 
         with col1:
             st.metric("Vacancies", f"{quartiles['top_25']['num_vacancies']:,}")
@@ -653,13 +653,19 @@ def create_overview_tab(df):
             st.metric("Total Applies", f"{quartiles['top_25']['total_applies']:,}")
 
         with col4:
+            st.metric("Apply/Click %", f"{quartiles['top_25']['apply_click_ratio']:.2f}%")
+
+        with col5:
             st.metric("Avg Clicks/Vac", f"{quartiles['top_25']['clicks_per_vacancy']:.1f}")
+
+        with col6:
+            st.metric("Avg Applies/Vac", f"{quartiles['top_25']['applies_per_vacancy']:.2f}")
 
         st.markdown("---")
 
         # Row 3: Middle 50% (Average Performers)
         st.markdown("### 🟡 Middle 50% Performers")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
 
         with col1:
             st.metric("Vacancies", f"{quartiles['middle_50']['num_vacancies']:,}")
@@ -671,13 +677,19 @@ def create_overview_tab(df):
             st.metric("Total Applies", f"{quartiles['middle_50']['total_applies']:,}")
 
         with col4:
+            st.metric("Apply/Click %", f"{quartiles['middle_50']['apply_click_ratio']:.2f}%")
+
+        with col5:
             st.metric("Avg Clicks/Vac", f"{quartiles['middle_50']['clicks_per_vacancy']:.1f}")
+
+        with col6:
+            st.metric("Avg Applies/Vac", f"{quartiles['middle_50']['applies_per_vacancy']:.2f}")
 
         st.markdown("---")
 
         # Row 4: Bottom 25% (Needs Improvement)
         st.markdown("### 🔴 Bottom 25% Performers")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
 
         with col1:
             st.metric("Vacancies", f"{quartiles['bottom_25']['num_vacancies']:,}")
@@ -689,7 +701,13 @@ def create_overview_tab(df):
             st.metric("Total Applies", f"{quartiles['bottom_25']['total_applies']:,}")
 
         with col4:
+            st.metric("Apply/Click %", f"{quartiles['bottom_25']['apply_click_ratio']:.2f}%")
+
+        with col5:
             st.metric("Avg Clicks/Vac", f"{quartiles['bottom_25']['clicks_per_vacancy']:.1f}")
+
+        with col6:
+            st.metric("Avg Applies/Vac", f"{quartiles['bottom_25']['applies_per_vacancy']:.2f}")
 
     else:
         # Fallback to simple view if not enough data
@@ -952,9 +970,18 @@ def create_deep_dive_tab(df):
 # TAB 3: VACANCY PERFORMANCE
 # ============================================================================
 
-def create_vacancy_performance_tab(df):
-    """Create the Vacancy Performance tab."""
+def create_vacancy_performance_tab(df, full_df=None):
+    """Create the Vacancy Performance tab.
+
+    Args:
+        df: The main dataframe (used for filtering)
+        full_df: The full unfiltered dataframe (used for benchmark calculations)
+    """
     st.header("📋 Vacancy Performance")
+
+    # Use full_df if provided, otherwise use df
+    if full_df is None:
+        full_df = df
 
     # Filters
     with st.expander("🔍 Filters", expanded=True):
@@ -1038,17 +1065,45 @@ def create_vacancy_performance_tab(df):
         st.warning("⚠️ No vacancy data found for the selected filters. Try adjusting your date range or filters.")
         return
 
-    # Calculate occupation averages (within filtered date range)
+    # Calculate occupation benchmarks from FULL dataset (static benchmarks)
+    # Build vacancy data from full dataset for benchmarks
+    full_clicks_df = full_df[full_df['event_name'] == 'job_visit'].copy() if 'event_name' in full_df.columns else full_df.copy()
+    full_applies_df = full_df[full_df['event_name'] == 'job_apply_start'].copy() if 'event_name' in full_df.columns else pd.DataFrame()
+    full_job_details = full_df.drop_duplicates(subset=[job_col])
+
+    full_vacancy_data = []
+    for _, job in full_job_details.iterrows():
+        full_job_id = job[job_col]
+        full_clicks = len(full_clicks_df[full_clicks_df[job_col] == full_job_id])
+        full_applies = len(full_applies_df[full_applies_df[job_col] == full_job_id]) if not full_applies_df.empty else 0
+
+        # Get occupation
+        occupation = job.get('occupational_fields', 'Unknown')
+        if pd.notna(occupation) and str(occupation).strip():
+            occupation = str(occupation).split('|')[0].strip()
+        else:
+            occupation = 'Unknown'
+
+        full_vacancy_data.append({
+            'Occupation': occupation,
+            'Clicks': int(full_clicks),
+            'Applies': int(full_applies)
+        })
+
+    full_vacancy_df = pd.DataFrame(full_vacancy_data)
+
+    # Calculate occupation benchmarks from full dataset
     occupation_stats = {}
-    if 'Occupation' in vacancy_df.columns:
-        for occupation in vacancy_df['Occupation'].unique():
-            occ_vacancies = vacancy_df[vacancy_df['Occupation'] == occupation]
+    if len(full_vacancy_df) > 0 and 'Occupation' in full_vacancy_df.columns:
+        for occupation in full_vacancy_df['Occupation'].unique():
+            occ_vacancies = full_vacancy_df[full_vacancy_df['Occupation'] == occupation]
             occupation_stats[occupation] = {
                 'avg_clicks': occ_vacancies['Clicks'].mean(),
                 'avg_applies': occ_vacancies['Applies'].mean()
             }
 
-        # Add occupation averages to each row
+    # Add occupation benchmarks to filtered vacancy data
+    if 'Occupation' in vacancy_df.columns:
         vacancy_df['Avg Clicks (Occupation)'] = vacancy_df['Occupation'].map(
             lambda x: round(occupation_stats.get(x, {}).get('avg_clicks', 0), 1)
         )
@@ -1084,7 +1139,119 @@ def create_vacancy_performance_tab(df):
     )
 
 # ============================================================================
-# TAB 4: COMPARISON
+# TAB 4: GEOGRAPHY
+# ============================================================================
+
+def create_geography_tab(df):
+    """Create the Geography tab with UK regional map."""
+    st.header("🗺️ Geography")
+
+    # Filters
+    with st.expander("🔍 Filters", expanded=True):
+        filters, apply_clicked = create_filter_panel(df, 'geography')
+
+    # Apply filters
+    if apply_clicked or 'geography_filters' in st.session_state:
+        if apply_clicked:
+            st.session_state.geography_filters = filters
+        filtered_df = apply_filters_to_data(df, st.session_state.geography_filters)
+    else:
+        filtered_df = df.copy()
+
+    # Calculate metrics by region
+    if 'uk_region' in filtered_df.columns and 'entity_id' in filtered_df.columns:
+        region_data = []
+        for region in filtered_df['uk_region'].dropna().unique():
+            reg_df = filtered_df[filtered_df['uk_region'] == region]
+            reg_metrics = calculate_metrics(reg_df)
+            region_data.append({
+                'Region': region,
+                'Vacancies': reg_metrics['num_vacancies'],
+                'Clicks': reg_metrics['total_clicks'],
+                'Applies': reg_metrics['total_applies'],
+                'Apply/Click %': reg_metrics['apply_click_ratio'],
+                'Clicks/Vac': reg_metrics['clicks_per_vacancy'],
+                'Applies/Vac': reg_metrics['applies_per_vacancy']
+            })
+
+        region_df = pd.DataFrame(region_data).sort_values('Vacancies', ascending=False)
+
+        # Summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Regions", len(region_df))
+        with col2:
+            st.metric("Total Vacancies", f"{region_df['Vacancies'].sum():,}")
+        with col3:
+            st.metric("Total Clicks", f"{region_df['Clicks'].sum():,}")
+        with col4:
+            st.metric("Total Applies", f"{region_df['Applies'].sum():,}")
+
+        st.markdown("---")
+
+        # Create choropleth map
+        st.subheader("🗺️ UK Regional Distribution")
+
+        metric_choice = st.selectbox(
+            "Select metric to display on map:",
+            ['Vacancies', 'Clicks', 'Applies', 'Clicks/Vac', 'Applies/Vac', 'Apply/Click %'],
+            key='geography_metric'
+        )
+
+        # Create the map
+        fig = px.choropleth(
+            region_df,
+            locations='Region',
+            locationmode='country names',
+            color=metric_choice,
+            hover_name='Region',
+            hover_data={
+                'Region': False,
+                'Vacancies': ':,',
+                'Clicks': ':,',
+                'Applies': ':,',
+                'Clicks/Vac': ':.1f',
+                'Applies/Vac': ':.2f',
+                'Apply/Click %': ':.2f'
+            },
+            color_continuous_scale='YlOrRd',
+            title=f'{metric_choice} by UK Region'
+        )
+
+        # Focus on UK
+        fig.update_geos(
+            center=dict(lat=54.5, lon=-2),
+            projection_scale=6,
+            visible=False,
+            resolution=50,
+            showcountries=False,
+            showcoastlines=False,
+            showland=False,
+            fitbounds="locations"
+        )
+
+        fig.update_layout(height=600)
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("---")
+
+        # Regional data table
+        st.subheader("📊 Regional Performance Data")
+        st.dataframe(region_df, use_container_width=True, hide_index=True)
+
+        # Export
+        csv = region_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "📥 Download Regional Data",
+            csv,
+            f"regional_performance_{datetime.now().strftime('%Y%m%d')}.csv",
+            "text/csv"
+        )
+    else:
+        st.warning("⚠️ No regional data available in the dataset.")
+
+# ============================================================================
+# TAB 5: COMPARISON
 # ============================================================================
 
 def create_comparison_tab(df):
@@ -1299,7 +1466,7 @@ def main():
     status_text.empty()
 
     # Initialize session state for all tabs
-    for tab_prefix in ['overview', 'deepdive', 'vacancy', 'comp_left', 'comp_right']:
+    for tab_prefix in ['overview', 'deepdive', 'vacancy', 'geography', 'comp_left', 'comp_right']:
         if f'{tab_prefix}_filters' not in st.session_state:
             st.session_state[f'{tab_prefix}_filters'] = None
 
@@ -1354,10 +1521,11 @@ def main():
                 st.write(f"'{name}': {count} records")
 
     # Tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Overview",
         "🔍 Deep Dive",
         "📋 Vacancy Performance",
+        "🗺️ Geography",
         "⚖️ Comparison"
     ])
 
@@ -1368,9 +1536,12 @@ def main():
         create_deep_dive_tab(df)
 
     with tab3:
-        create_vacancy_performance_tab(df)
+        create_vacancy_performance_tab(df, full_df=df)
 
     with tab4:
+        create_geography_tab(df)
+
+    with tab5:
         create_comparison_tab(df)
 
 if __name__ == "__main__":

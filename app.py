@@ -489,7 +489,7 @@ def calculate_metrics(df):
 
     metrics['apply_click_ratio'] = (metrics['total_applies'] / metrics['total_clicks'] * 100) if metrics['total_clicks'] > 0 else 0
 
-    # Calculate per-vacancy metrics with robust statistics (vectorized)
+    # Calculate per-vacancy metrics (vectorized)
     if metrics['num_vacancies'] > 0 and 'event_name' in df.columns:
         # Vectorized groupby operations (much faster than loops)
         clicks_by_vacancy = df[df['event_name'] == 'job_visit'].groupby(entity_col).size()
@@ -500,20 +500,17 @@ def calculate_metrics(df):
         vacancy_clicks = clicks_by_vacancy.reindex(all_vacancies, fill_value=0).values
         vacancy_applies = applies_by_vacancy.reindex(all_vacancies, fill_value=0).values
 
+        # Simple mean (total / count)
+        metrics['mean_clicks_per_vacancy'] = metrics['total_clicks'] / metrics['num_vacancies']
+        metrics['mean_applies_per_vacancy'] = metrics['total_applies'] / metrics['num_vacancies']
+
         # Median (robust to outliers)
         metrics['median_clicks_per_vacancy'] = np.median(vacancy_clicks) if len(vacancy_clicks) > 0 else 0
         metrics['median_applies_per_vacancy'] = np.median(vacancy_applies) if len(vacancy_applies) > 0 else 0
 
-        # Mean with outlier removal (IQR method)
-        clicks_no_outliers = remove_outliers_iqr(vacancy_clicks.tolist())
-        applies_no_outliers = remove_outliers_iqr(vacancy_applies.tolist())
-
-        metrics['mean_clicks_per_vacancy'] = np.mean(clicks_no_outliers) if clicks_no_outliers else 0
-        metrics['mean_applies_per_vacancy'] = np.mean(applies_no_outliers) if applies_no_outliers else 0
-
-        # Keep original simple averages for compatibility
-        metrics['clicks_per_vacancy'] = metrics['median_clicks_per_vacancy']  # Default to median
-        metrics['applies_per_vacancy'] = metrics['median_applies_per_vacancy']  # Default to median
+        # Use simple mean for main metrics
+        metrics['clicks_per_vacancy'] = metrics['mean_clicks_per_vacancy']
+        metrics['applies_per_vacancy'] = metrics['mean_applies_per_vacancy']
     else:
         metrics['median_clicks_per_vacancy'] = 0
         metrics['median_applies_per_vacancy'] = 0
@@ -751,13 +748,13 @@ def create_overview_tab(df):
                     'Importer': importer,
                     'Vacancies': imp_metrics['num_vacancies'],
                     'Median Clicks': round(imp_metrics['median_clicks_per_vacancy'], 1),
-                    'Mean Clicks (IQR)': round(imp_metrics['mean_clicks_per_vacancy'], 1),
+                    'Mean Clicks': round(imp_metrics['mean_clicks_per_vacancy'], 1),
                     'Median Applies': round(imp_metrics['median_applies_per_vacancy'], 2),
-                    'Mean Applies (IQR)': round(imp_metrics['mean_applies_per_vacancy'], 2),
+                    'Mean Applies': round(imp_metrics['mean_applies_per_vacancy'], 2),
                     'Apply/Click %': round(imp_metrics['apply_click_ratio'], 2)
                 })
 
-            importer_df = pd.DataFrame(importer_stats).sort_values('Median Clicks', ascending=False)
+            importer_df = pd.DataFrame(importer_stats).sort_values('Mean Clicks', ascending=False)
 
             # Create grouped bar chart
             fig = go.Figure()
@@ -769,10 +766,10 @@ def create_overview_tab(df):
                 textposition='auto',
             ))
             fig.add_trace(go.Bar(
-                name='Mean Clicks/Vacancy (IQR)',
+                name='Mean Clicks/Vacancy',
                 x=importer_df['Importer'],
-                y=importer_df['Mean Clicks (IQR)'],
-                text=importer_df['Mean Clicks (IQR)'],
+                y=importer_df['Mean Clicks'],
+                text=importer_df['Mean Clicks'],
                 textposition='auto',
             ))
 
@@ -796,13 +793,13 @@ def create_overview_tab(df):
                     'Region': region,
                     'Vacancies': reg_metrics['num_vacancies'],
                     'Median Clicks': round(reg_metrics['median_clicks_per_vacancy'], 1),
-                    'Mean Clicks (IQR)': round(reg_metrics['mean_clicks_per_vacancy'], 1),
+                    'Mean Clicks': round(reg_metrics['mean_clicks_per_vacancy'], 1),
                     'Median Applies': round(reg_metrics['median_applies_per_vacancy'], 2),
-                    'Mean Applies (IQR)': round(reg_metrics['mean_applies_per_vacancy'], 2),
+                    'Mean Applies': round(reg_metrics['mean_applies_per_vacancy'], 2),
                     'Apply/Click %': round(reg_metrics['apply_click_ratio'], 2)
                 })
 
-            region_df = pd.DataFrame(region_stats).sort_values('Median Clicks', ascending=False)
+            region_df = pd.DataFrame(region_stats).sort_values('Mean Clicks', ascending=False)
 
             # Create grouped bar chart
             fig = go.Figure()
@@ -814,10 +811,10 @@ def create_overview_tab(df):
                 textposition='auto',
             ))
             fig.add_trace(go.Bar(
-                name='Mean Clicks/Vacancy (IQR)',
+                name='Mean Clicks/Vacancy',
                 x=region_df['Region'],
-                y=region_df['Mean Clicks (IQR)'],
-                text=region_df['Mean Clicks (IQR)'],
+                y=region_df['Mean Clicks'],
+                text=region_df['Mean Clicks'],
                 textposition='auto',
             ))
 
@@ -890,12 +887,12 @@ def create_deep_dive_tab(df):
                 'Total Applies': metrics['total_applies'],
                 'Apply/Click %': round(metrics['apply_click_ratio'], 2),
                 'Median Clicks/Vac': round(metrics['median_clicks_per_vacancy'], 1),
-                'Mean Clicks/Vac (IQR)': round(metrics['mean_clicks_per_vacancy'], 1),
+                'Mean Clicks/Vac': round(metrics['mean_clicks_per_vacancy'], 1),
                 'Median Applies/Vac': round(metrics['median_applies_per_vacancy'], 2),
-                'Mean Applies/Vac (IQR)': round(metrics['mean_applies_per_vacancy'], 2)
+                'Mean Applies/Vac': round(metrics['mean_applies_per_vacancy'], 2)
             })
 
-        benchmark_df = pd.DataFrame(benchmark_data).sort_values('Median Clicks/Vac', ascending=False)
+        benchmark_df = pd.DataFrame(benchmark_data).sort_values('Mean Clicks/Vac', ascending=False)
         st.dataframe(benchmark_df, use_container_width=True)
 
         # Export
@@ -1030,8 +1027,8 @@ def create_vacancy_performance_tab(df):
             'Clicks': int(clicks),
             'Applies': int(applies),
             'Ratio %': round(ratio, 2) if clicks > 0 else None,
-            'Clicks/Day': round(clicks / days_active, 2) if days_active and days_active > 0 and is_published else None,
-            'Applies/Day': round(applies / days_active, 2) if days_active and days_active > 0 and is_published else None
+            'Clicks/Day': round(clicks / days_active, 2) if days_active and days_active > 0 else None,
+            'Applies/Day': round(applies / days_active, 2) if days_active and days_active > 0 else None
         })
 
     vacancy_df = pd.DataFrame(vacancy_data)

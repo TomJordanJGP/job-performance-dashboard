@@ -78,7 +78,7 @@ def load_data_from_bigquery(days_back=180):  # Default 6 months
             metadata.employment_type
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}` AS events
         LEFT JOIN `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.job_metadata` AS metadata
-            ON events.entity_id = metadata.entity_id
+            ON CAST(events.entity_id AS STRING) = metadata.entity_id
         WHERE events.event_date >= '{cutoff_date}'
         ORDER BY events.event_date DESC
         """

@@ -58,11 +58,23 @@ def get_bigquery_client():
         st.stop()
 
 @st.cache_data(ttl=3600)
-def load_data_from_bigquery(days_back=180):  # Default 6 months
-    """Load data from BigQuery with date filter and join with job metadata."""
+def load_data_from_bigquery(days_back=30):  # Default 30 days for faster loading
+    """Load data from BigQuery with date filter."""
     try:
         client = get_bigquery_client()
         cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
+
+        # First check row count
+        count_query = f"""
+        SELECT COUNT(*) as row_count
+        FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
+        WHERE event_date >= '{cutoff_date}'
+        """
+
+        st.info(f"📊 Checking data size for last {days_back} days...")
+        count_result = client.query(count_query).result()
+        row_count = list(count_result)[0].row_count
+        st.info(f"📊 Found {row_count:,} rows. Loading data...")
 
         query = f"""
         SELECT *
@@ -70,10 +82,9 @@ def load_data_from_bigquery(days_back=180):  # Default 6 months
         WHERE event_date >= '{cutoff_date}'
         """
 
-        st.info(f"📊 Querying BigQuery (last {days_back} days)...")
         query_job = client.query(query)
         df = query_job.to_dataframe(create_bqstorage_client=False)
-        st.success(f"✅ Loaded {len(df):,} rows from BigQuery with job metadata")
+        st.success(f"✅ Loaded {len(df):,} rows from BigQuery")
         return df
     except Exception as e:
         st.error(f"❌ Error loading data from BigQuery: {str(e)}")

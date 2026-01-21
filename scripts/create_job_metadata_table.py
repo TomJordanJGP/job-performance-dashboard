@@ -1,18 +1,34 @@
 """
-Create and populate job metadata table in BigQuery from jobs-export.csv
+Create and populate job metadata table in BigQuery from Google Sheets
 This table will be joined with events data to add occupation, location, status, etc.
 """
 
 from google.cloud import bigquery
+from google.oauth2 import service_account
+import gspread
 import pandas as pd
 import os
 
 # Set credentials
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = '../service_account.json'
 
+# Google Sheets configuration
+SPREADSHEET_ID = '1eREp6EfdS4Tm4c-GUZQ4GdFH1LFZfBpx20ZbkSTiyZE'
+SHEET_NAME = 'Sheet1'  # Adjust if needed
+
 def create_metadata_table():
-    """Create the job_metadata table in BigQuery."""
+    """Create the job_metadata table in BigQuery if it doesn't exist."""
     client = bigquery.Client()
+
+    table_id = "site-monitoring-421401.job_data_export.job_metadata"
+
+    # Check if table already exists
+    try:
+        client.get_table(table_id)
+        print(f"✅ Table {table_id} already exists")
+        return table_id
+    except Exception:
+        print(f"Table doesn't exist, attempting to create...")
 
     # Define table schema
     schema = [
@@ -29,8 +45,6 @@ def create_metadata_table():
         bigquery.SchemaField("last_updated", "TIMESTAMP"),
     ]
 
-    table_id = "job-board-analytics-444710.job_board_events.job_metadata"
-
     # Create table
     table = bigquery.Table(table_id, schema=schema)
     table = client.create_table(table, exists_ok=True)
@@ -39,27 +53,41 @@ def create_metadata_table():
     return table_id
 
 
-def load_data_from_csv(table_id):
-    """Load data from jobs-export.csv into BigQuery table."""
+def load_data_from_sheets(table_id):
+    """Load data from Google Sheets into BigQuery table."""
     client = bigquery.Client()
 
-    print("Loading jobs-export.csv...")
-    df = pd.read_csv('../jobs-export.csv', low_memory=False)
+    print(f"Loading data from Google Sheets (ID: {SPREADSHEET_ID})...")
 
-    print(f"Found {len(df)} jobs in CSV")
+    # Authenticate with Google Sheets
+    creds = service_account.Credentials.from_service_account_file(
+        '../service_account.json',
+        scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
+    )
+    gc = gspread.authorize(creds)
 
-    # Prepare dataframe for BigQuery
+    # Open spreadsheet and get data
+    spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+    worksheet = spreadsheet.worksheet(SHEET_NAME)
+
+    # Get all values and convert to DataFrame
+    data = worksheet.get_all_records()
+    df = pd.DataFrame(data)
+
+    print(f"Found {len(df)} jobs in Google Sheets")
+
+    # Prepare dataframe for BigQuery with proper type conversions
     df_clean = pd.DataFrame({
-        'entity_id': df['job_id'].astype(str),
-        'title': df['title'],
-        'workflow_state': df['workflow_state'],
-        'occupational_fields': df['occupational_fields'],
-        'locations': df['locations'],
-        'publishing_date': pd.to_datetime(df['publishing_date'], errors='coerce'),
-        'expiration_date': pd.to_datetime(df['expiration_date'], errors='coerce'),
-        'organization_profile_name': df['organization_profile_name'],
-        'organization_id': df.get('organization_id', ''),
-        'employment_type': df.get('employment_type', ''),
+        'entity_id': df['job_id'].fillna('').astype(str),
+        'title': df['title'].fillna('').astype(str),
+        'workflow_state': df['workflow_state'].fillna('').astype(str),
+        'occupational_fields': df['occupational_fields'].fillna('').astype(str),
+        'locations': df['locations'].fillna('').astype(str),
+        'publishing_date': pd.to_datetime(df['publishing_date'], format='%d/%m/%Y %H:%M', errors='coerce'),
+        'expiration_date': pd.to_datetime(df['expiration_date'], format='%d/%m/%Y %H:%M', errors='coerce'),
+        'organization_profile_name': df['organization_profile_name'].fillna('').astype(str),
+        'organization_id': df.get('organization_id', pd.Series([''] * len(df))).fillna('').astype(str),
+        'employment_type': df.get('employment_type', pd.Series([''] * len(df))).fillna('').astype(str),
         'last_updated': pd.Timestamp.now()
     })
 
@@ -105,7 +133,7 @@ def test_query():
         locations,
         publishing_date,
         expiration_date
-    FROM `job-board-analytics-444710.job_board_events.job_metadata`
+    FROM `site-monitoring-421401.job_data_export.job_metadata`
     LIMIT 10
     """
 
@@ -117,16 +145,24 @@ def test_query():
 
 if __name__ == "__main__":
     print("=" * 80)
-    print("Creating Job Metadata Table in BigQuery")
+    print("Loading Job Metadata to BigQuery from Google Sheets")
     print("=" * 80)
 
-    # Step 1: Create table
-    table_id = create_metadata_table()
+    table_id = "site-monitoring-421401.job_data_export.job_metadata"
 
-    # Step 2: Load data from CSV
-    load_data_from_csv(table_id)
+    # Check if table exists, create if needed
+    try:
+        create_metadata_table()
+    except Exception as e:
+        print(f"⚠️  Could not create table: {e}")
+        print("Please run the SQL in scripts/create_table.sql in BigQuery console first")
+        print("Then run this script again")
+        exit(1)
 
-    # Step 3: Test
+    # Load data from Google Sheets
+    load_data_from_sheets(table_id)
+
+    # Test
     test_query()
 
     print("\n" + "=" * 80)
@@ -134,5 +170,4 @@ if __name__ == "__main__":
     print("=" * 80)
     print("\nNext steps:")
     print("1. Update app.py to use new joined query")
-    print("2. Remove CSV loading code")
-    print("3. Test dashboard")
+    print("2. Test dashboard")

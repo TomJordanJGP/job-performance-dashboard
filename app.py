@@ -59,22 +59,34 @@ def get_bigquery_client():
 
 @st.cache_data(ttl=3600)
 def load_data_from_bigquery(days_back=180):  # Default 6 months
-    """Load data from BigQuery with date filter."""
+    """Load data from BigQuery with date filter and join with job metadata."""
     try:
         client = get_bigquery_client()
         cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
 
         query = f"""
-        SELECT *
-        FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
-        WHERE event_date >= '{cutoff_date}'
-        ORDER BY event_date DESC
+        SELECT
+            events.*,
+            metadata.title,
+            metadata.workflow_state,
+            metadata.occupational_fields,
+            metadata.locations,
+            metadata.publishing_date,
+            metadata.expiration_date,
+            metadata.organization_profile_name,
+            metadata.organization_id,
+            metadata.employment_type
+        FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}` AS events
+        LEFT JOIN `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.job_metadata` AS metadata
+            ON events.entity_id = metadata.entity_id
+        WHERE events.event_date >= '{cutoff_date}'
+        ORDER BY events.event_date DESC
         """
 
         st.info(f"📊 Querying BigQuery (last {days_back} days)...")
         query_job = client.query(query)
         df = query_job.to_dataframe(create_bqstorage_client=False)
-        st.success(f"✅ Loaded {len(df):,} rows from BigQuery")
+        st.success(f"✅ Loaded {len(df):,} rows from BigQuery with job metadata")
         return df
     except Exception as e:
         st.error(f"❌ Error loading data from BigQuery: {str(e)}")
@@ -102,21 +114,11 @@ def load_importer_mapping():
 @st.cache_data(ttl=300)
 def load_jobiqo_export():
     """Load Jobiqo export data from CSV file.
-    NOTE: jobs-export.csv is too large for GitHub (135MB).
-    For production, use BigQuery job_metadata table instead.
-    See scripts/SETUP_INSTRUCTIONS.md for migration guide.
+    NOTE: This function is deprecated. Job metadata is now loaded from BigQuery
+    via the job_metadata table in load_data_from_bigquery().
     """
-    try:
-        # Try to load CSV if it exists locally (for development)
-        jobiqo_df = pd.read_csv('jobs-export.csv', low_memory=False)
-        return jobiqo_df
-    except FileNotFoundError:
-        # CSV not found - return empty dataframe
-        # This is expected in production where we use BigQuery metadata table
-        st.warning("⚠️ jobs-export.csv not found. Some metadata fields may be missing. Consider migrating to BigQuery job_metadata table.")
-        return pd.DataFrame()
-    except Exception:
-        return pd.DataFrame()
+    # Return empty dataframe - metadata comes from BigQuery now
+    return pd.DataFrame()
 
 # ============================================================================
 # DATA PROCESSING FUNCTIONS

@@ -63,6 +63,26 @@ def load_data_from_bigquery(days_back=90):
     """
     try:
         client = get_bigquery_client()
+
+        # First check if the enriched table exists
+        try:
+            table_ref = f"{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}"
+            client.get_table(table_ref)
+        except Exception as table_error:
+            st.error("❌ **Enriched table not found in BigQuery**")
+            st.markdown("""
+            The `job_performance_enriched` table hasn't been created yet.
+
+            **To create it:**
+            1. Go to BigQuery console: https://console.cloud.google.com/bigquery?project=site-monitoring-421401
+            2. Run the SQL from `scripts/create_enriched_table_with_regions.sql` (Step 1, lines 6-96)
+            3. Wait for the query to complete (may take a few minutes)
+            4. Refresh this dashboard
+
+            **Error details:** {str(table_error)}
+            """)
+            st.stop()
+
         cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
 
         query = f"""
@@ -80,6 +100,12 @@ def load_data_from_bigquery(days_back=90):
         return df
     except Exception as e:
         st.error(f"❌ Error loading data: {str(e)}")
+        st.markdown("""
+        **Troubleshooting:**
+        - Check BigQuery table exists: `job_data_export.job_performance_enriched`
+        - Verify service account has `bigquery.jobs.create` permission
+        - Check the table has data for the requested date range
+        """)
         st.stop()
 
 @st.cache_data(ttl=300)

@@ -1234,12 +1234,12 @@ def main():
     st.sidebar.header("⚙️ Data Loading Settings")
 
     days_back = st.sidebar.slider(
-        "Days to Load",
+        "Vacancies Active In Last (Days)",
         min_value=7,
         max_value=365,
         value=30,
         step=7,
-        help="Number of days of historical data to load from BigQuery"
+        help="Show vacancies that received at least one view or click within this many days"
     )
 
     # Sampling option for faster testing
@@ -1317,7 +1317,7 @@ def main():
         st.sidebar.info("🔐 Authentication: Local File")
 
     # Data loading info
-    st.sidebar.info(f"📊 Loaded last {days_back} days")
+    st.sidebar.info(f"📊 Vacancies active in last {days_back} days")
     st.sidebar.metric("Total Vacancies", f"{len(df):,}")
     if 'clicks' in df.columns:
         st.sidebar.metric("Total Clicks", f"{int(df['clicks'].sum()):,}")

@@ -86,41 +86,25 @@ def get_bigquery_client():
         st.code(f"Full error: {repr(e)}")
         st.stop()
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def load_data_from_bigquery(days_back=30, sample_size=None):
-    """Load pre-aggregated vacancy summary data from BigQuery.
+@st.cache_data(ttl=14400)  # Cache for 4 hours (data refreshes daily)
+def load_all_data(days_back=30, sample_size=None):
+    """Load vacancy summary and daily totals in a single BigQuery call.
 
-    Each row represents one vacancy with pre-computed clicks and applies counts.
-    Filters by last_event_date to find vacancies active in the period.
+    Returns both DataFrames from one round trip to minimise latency.
 
     Args:
         days_back: Number of days to look back
-        sample_size: If set, limit the result to this many rows (for testing)
+        sample_size: If set, limit vacancy rows (for testing)
     """
     try:
         client = get_bigquery_client()
 
-        # First check if the summary table exists
-        try:
-            table_ref = f"{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}"
-            client.get_table(table_ref)
-        except Exception as table_error:
-            st.error("❌ **Vacancy summary table not found in BigQuery**")
-            st.markdown(f"""
-            The `dashboard_vacancy_summary` table hasn't been created yet.
-
-            **To create it:**
-            1. Go to BigQuery console: https://console.cloud.google.com/bigquery?project=site-monitoring-421401
-            2. Create the `dashboard_vacancy_summary` table
-            3. Refresh this dashboard
-
-            **Error details:** {str(table_error)}
-            """)
-            st.stop()
-
         cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
 
-        query = f"""
+        limit_clause = f"LIMIT {sample_size}" if sample_size else ""
+
+        # Run both queries in one script to minimise round trips
+        vacancy_query = f"""
         SELECT
             entity_id_str,
             first_event_date,
@@ -138,42 +122,10 @@ def load_data_from_bigquery(days_back=30, sample_size=None):
             end_date
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
         WHERE last_event_date >= '{cutoff_date}'
+        {limit_clause}
         """
 
-        # Add LIMIT clause if sampling
-        if sample_size:
-            query += f"\nLIMIT {sample_size}"
-
-        query_job = client.query(query)
-        query_job.result()
-        df = query_job.to_dataframe(create_bqstorage_client=False)
-
-        return df
-    except Exception as e:
-        st.error(f"❌ Error loading data: {str(e)}")
-        st.markdown("""
-        **Troubleshooting:**
-        - Check BigQuery table exists: `job_data_export.dashboard_vacancy_summary`
-        - Verify service account has `bigquery.jobs.create` permission
-        - Check the table has data for the requested date range
-        """)
-        st.stop()
-
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def load_daily_totals(days_back=30):
-    """Load pre-aggregated daily totals from BigQuery.
-
-    Each row represents one day with total clicks, applies, and active vacancies.
-
-    Args:
-        days_back: Number of days to look back
-    """
-    try:
-        client = get_bigquery_client()
-
-        cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
-
-        query = f"""
+        daily_query = f"""
         SELECT
             event_date,
             clicks,
@@ -184,13 +136,27 @@ def load_daily_totals(days_back=30):
         ORDER BY event_date
         """
 
-        query_job = client.query(query)
-        query_job.result()
-        df = query_job.to_dataframe(create_bqstorage_client=False)
-        return df
+        # Submit both queries concurrently
+        vacancy_job = client.query(vacancy_query)
+        daily_job = client.query(daily_query)
+
+        # Wait for both to complete
+        vacancy_job.result()
+        daily_job.result()
+
+        vacancy_df = vacancy_job.to_dataframe(create_bqstorage_client=False)
+        daily_df = daily_job.to_dataframe(create_bqstorage_client=False)
+
+        return vacancy_df, daily_df
     except Exception as e:
-        st.warning(f"Could not load daily totals: {str(e)}")
-        return pd.DataFrame()
+        st.error(f"❌ Error loading data: {str(e)}")
+        st.markdown("""
+        **Troubleshooting:**
+        - Check BigQuery tables exist: `dashboard_vacancy_summary` and `dashboard_daily_totals`
+        - Verify service account has `bigquery.jobs.create` permission
+        - Check the tables have data for the requested date range
+        """)
+        st.stop()
 
 @st.cache_data(ttl=300)
 def load_importer_mapping():
@@ -1298,12 +1264,8 @@ def main():
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    status_text.text("Loading vacancy data from BigQuery... 0%")
-    df_raw = load_data_from_bigquery(days_back=days_back, sample_size=sample_size)
-    progress_bar.progress(30)
-
-    status_text.text("Loading daily totals... 30%")
-    daily_totals = load_daily_totals(days_back=days_back)
+    status_text.text("Loading data from BigQuery... 0%")
+    df_raw, daily_totals = load_all_data(days_back=days_back, sample_size=sample_size)
     progress_bar.progress(40)
 
     status_text.text("Loading importer mapping... 40%")

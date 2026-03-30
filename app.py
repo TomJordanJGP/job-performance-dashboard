@@ -1167,12 +1167,9 @@ def create_comparison_tab(df):
         with st.expander("🔍 Filters", expanded=True):
             filters_left, apply_left = create_filter_panel(df, 'comp_left')
 
-        if apply_left:
-            st.session_state.comp_left_filters = filters_left
-            st.rerun()
-
-        # Apply filters
-        if 'comp_left_filters' in st.session_state:
+        if apply_left or 'comp_left_filters' in st.session_state:
+            if apply_left:
+                st.session_state.comp_left_filters = filters_left
             filtered_left = apply_filters_to_data(df, st.session_state.comp_left_filters)
         else:
             filtered_left = df.copy()
@@ -1193,12 +1190,9 @@ def create_comparison_tab(df):
         with st.expander("🔍 Filters", expanded=True):
             filters_right, apply_right = create_filter_panel(df, 'comp_right')
 
-        if apply_right:
-            st.session_state.comp_right_filters = filters_right
-            st.rerun()
-
-        # Apply filters
-        if 'comp_right_filters' in st.session_state:
+        if apply_right or 'comp_right_filters' in st.session_state:
+            if apply_right:
+                st.session_state.comp_right_filters = filters_right
             filtered_right = apply_filters_to_data(df, st.session_state.comp_right_filters)
         else:
             filtered_right = df.copy()

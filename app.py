@@ -18,7 +18,8 @@ st.set_page_config(
 # BigQuery configuration
 BQ_PROJECT_ID = "site-monitoring-421401"
 BQ_DATASET_ID = "job_data_export"
-BQ_TABLE_ID = "job_performance_enriched"
+BQ_TABLE_ID = "dashboard_vacancy_summary"
+BQ_DAILY_TOTALS_TABLE_ID = "dashboard_daily_totals"
 
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets.readonly',
@@ -87,10 +88,10 @@ def get_bigquery_client():
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def load_data_from_bigquery(days_back=30, sample_size=None):
-    """Load data from BigQuery enriched table with date filter.
+    """Load pre-aggregated vacancy summary data from BigQuery.
 
-    The enriched table is partitioned by event_date_parsed for fast queries.
-    It includes all metadata and parsed location fields.
+    Each row represents one vacancy with pre-computed clicks and applies counts.
+    Filters by last_event_date to find vacancies active in the period.
 
     Args:
         days_back: Number of days to look back
@@ -99,20 +100,19 @@ def load_data_from_bigquery(days_back=30, sample_size=None):
     try:
         client = get_bigquery_client()
 
-        # First check if the enriched table exists
+        # First check if the summary table exists
         try:
             table_ref = f"{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}"
             client.get_table(table_ref)
         except Exception as table_error:
-            st.error("❌ **Enriched table not found in BigQuery**")
-            st.markdown("""
-            The `job_performance_enriched` table hasn't been created yet.
+            st.error("❌ **Vacancy summary table not found in BigQuery**")
+            st.markdown(f"""
+            The `dashboard_vacancy_summary` table hasn't been created yet.
 
             **To create it:**
             1. Go to BigQuery console: https://console.cloud.google.com/bigquery?project=site-monitoring-421401
-            2. Run the SQL from `scripts/create_enriched_table_with_regions.sql` (Step 1, lines 6-96)
-            3. Wait for the query to complete (may take a few minutes)
-            4. Refresh this dashboard
+            2. Create the `dashboard_vacancy_summary` table
+            3. Refresh this dashboard
 
             **Error details:** {str(table_error)}
             """)
@@ -123,20 +123,21 @@ def load_data_from_bigquery(days_back=30, sample_size=None):
         query = f"""
         SELECT
             entity_id_str,
-            event_date_parsed,
-            event_name,
-            title_export,
+            first_event_date,
+            last_event_date,
+            clicks,
+            applies,
+            title,
             organization_name,
-            location_region_matched,
-            occupational_fields_export,
+            uk_region,
+            occupational_fields,
             importer_ID,
-            publishing_date,
-            expiration_date,
             workflow_state,
-            upgrades
+            upgrades,
+            start_date,
+            end_date
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
-        WHERE event_date_parsed >= '{cutoff_date}'
-        AND event_name IN ('job_visit', 'job_apply_start')
+        WHERE last_event_date >= '{cutoff_date}'
         """
 
         # Add LIMIT clause if sampling
@@ -168,7 +169,7 @@ def load_data_from_bigquery(days_back=30, sample_size=None):
 
         # Stage 5: Complete
         progress_bar.progress(100)
-        status_text.text(f"Complete! Loaded {len(df):,} rows")
+        status_text.text(f"Complete! Loaded {len(df):,} vacancies")
 
         # Clean up progress indicators immediately
         progress_bar.empty()
@@ -179,11 +180,44 @@ def load_data_from_bigquery(days_back=30, sample_size=None):
         st.error(f"❌ Error loading data: {str(e)}")
         st.markdown("""
         **Troubleshooting:**
-        - Check BigQuery table exists: `job_data_export.job_performance_enriched`
+        - Check BigQuery table exists: `job_data_export.dashboard_vacancy_summary`
         - Verify service account has `bigquery.jobs.create` permission
         - Check the table has data for the requested date range
         """)
         st.stop()
+
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def load_daily_totals(days_back=30):
+    """Load pre-aggregated daily totals from BigQuery.
+
+    Each row represents one day with total clicks, applies, and active vacancies.
+
+    Args:
+        days_back: Number of days to look back
+    """
+    try:
+        client = get_bigquery_client()
+
+        cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+
+        query = f"""
+        SELECT
+            event_date,
+            clicks,
+            applies,
+            active_vacancies
+        FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_DAILY_TOTALS_TABLE_ID}`
+        WHERE event_date >= '{cutoff_date}'
+        ORDER BY event_date
+        """
+
+        query_job = client.query(query)
+        query_job.result()
+        df = query_job.to_dataframe(create_bqstorage_client=False)
+        return df
+    except Exception as e:
+        st.warning(f"Could not load daily totals: {str(e)}")
+        return pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def load_importer_mapping():
@@ -252,18 +286,13 @@ def parse_upgrades(df):
     return df
 
 def prepare_enriched_data(df):
-    """Prepare enriched data by renaming columns for dashboard compatibility."""
+    """Prepare vacancy summary data by renaming columns for dashboard compatibility."""
     df = df.copy()
 
-    # Rename enriched table columns to match dashboard expectations
+    # The vacancy summary table already uses clean names for most columns.
+    # Only entity_id_str needs renaming.
     column_mapping = {
         'entity_id_str': 'entity_id',
-        'event_date_parsed': 'event_date',
-        'title_export': 'title',
-        'location_region_matched': 'uk_region',
-        'occupational_fields_export': 'occupational_fields',
-        'publishing_date': 'start_date',
-        'expiration_date': 'end_date'
     }
 
     # Only rename columns that exist
@@ -284,9 +313,11 @@ def add_occupation_column(df):
     return df
 
 def parse_dates_in_jobiqo(df):
-    """Parse start and end dates from Jobiqo data."""
-    if 'event_date' in df.columns:
-        df['event_date'] = pd.to_datetime(df['event_date'], errors='coerce', utc=True).dt.tz_localize(None)
+    """Parse date columns from vacancy summary data."""
+    if 'first_event_date' in df.columns:
+        df['first_event_date'] = pd.to_datetime(df['first_event_date'], errors='coerce', utc=True).dt.tz_localize(None)
+    if 'last_event_date' in df.columns:
+        df['last_event_date'] = pd.to_datetime(df['last_event_date'], errors='coerce', utc=True).dt.tz_localize(None)
     if 'start_date' in df.columns:
         df['start_date'] = pd.to_datetime(df['start_date'], errors='coerce', utc=True).dt.tz_localize(None)
     if 'end_date' in df.columns:
@@ -307,16 +338,18 @@ def create_filter_panel(df, key_prefix, default_months=6):
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        # Date Range Filter
-        if 'event_date' in df.columns and pd.api.types.is_datetime64_any_dtype(df['event_date']):
-            min_date = df['event_date'].dropna().min()
-            max_date = df['event_date'].dropna().max()
+        # Date Range Filter (uses last_event_date for range boundaries)
+        date_col = 'last_event_date' if 'last_event_date' in df.columns else None
+        if date_col and pd.api.types.is_datetime64_any_dtype(df[date_col]):
+            # Use first_event_date min and last_event_date max for the full range
+            min_date = df['first_event_date'].dropna().min() if 'first_event_date' in df.columns else df[date_col].dropna().min()
+            max_date = df[date_col].dropna().max()
             if pd.isna(min_date) or pd.isna(max_date):
                 min_date = datetime.now().date()
                 max_date = datetime.now().date()
             else:
-                min_date = min_date.date()
-                max_date = max_date.date()
+                min_date = min_date.date() if hasattr(min_date, 'date') else min_date
+                max_date = max_date.date() if hasattr(max_date, 'date') else max_date
             default_start = (datetime.now() - timedelta(days=default_months*30)).date()
             default_start = max(default_start, min_date)
 
@@ -417,16 +450,17 @@ def apply_filters_to_data(df, filters):
 
     filtered = df.copy()
 
-    # Date Range Filter (show vacancies that had events within the date range)
+    # Date Range Filter (show vacancies whose event date range overlaps the selected range)
     if filters.get('date_range') and len(filters['date_range']) == 2:
         start_date, end_date = filters['date_range']
 
-        # Only filter by when events occurred (not when vacancy was active)
-        if 'event_date' in filtered.columns and pd.api.types.is_datetime64_any_dtype(filtered['event_date']):
-            filtered = filtered[
-                (filtered['event_date'].dt.date >= start_date) &
-                (filtered['event_date'].dt.date <= end_date)
-            ]
+        # A vacancy is in range if first_event_date <= end_date AND last_event_date >= start_date
+        if 'first_event_date' in filtered.columns and 'last_event_date' in filtered.columns:
+            if pd.api.types.is_datetime64_any_dtype(filtered['last_event_date']):
+                filtered = filtered[
+                    (filtered['first_event_date'].dt.date <= end_date) &
+                    (filtered['last_event_date'].dt.date >= start_date)
+                ]
 
     # Importer Filter
     if filters.get('importer') and 'importer_name' in filtered.columns:
@@ -478,43 +512,30 @@ def remove_outliers_iqr(data):
 
 
 def calculate_metrics(df):
-    """Calculate key metrics from dataframe with robust statistics (optimized)."""
+    """Calculate key metrics from pre-aggregated vacancy summary data.
+
+    Each row in df is a vacancy with pre-computed 'clicks' and 'applies' columns.
+    """
     entity_col = 'entity_id' if 'entity_id' in df.columns else df.columns[0]
 
     metrics = {}
-    metrics['num_vacancies'] = df[entity_col].nunique()
+    metrics['num_vacancies'] = len(df)  # Each row IS a vacancy now
 
-    if 'event_name' in df.columns:
-        # Vectorized counting
-        event_counts = df['event_name'].value_counts()
-        metrics['total_clicks'] = event_counts.get('job_visit', 0)
-        metrics['total_applies'] = event_counts.get('job_apply_start', 0)
+    if 'clicks' in df.columns:
+        metrics['total_clicks'] = int(df['clicks'].sum())
+        metrics['total_applies'] = int(df['applies'].sum())
     else:
-        metrics['total_clicks'] = len(df)
+        metrics['total_clicks'] = 0
         metrics['total_applies'] = 0
 
     metrics['apply_click_ratio'] = (metrics['total_applies'] / metrics['total_clicks'] * 100) if metrics['total_clicks'] > 0 else 0
 
-    # Calculate per-vacancy metrics (vectorized)
-    if metrics['num_vacancies'] > 0 and 'event_name' in df.columns:
-        # Vectorized groupby operations (much faster than loops)
-        clicks_by_vacancy = df[df['event_name'] == 'job_visit'].groupby(entity_col).size()
-        applies_by_vacancy = df[df['event_name'] == 'job_apply_start'].groupby(entity_col).size()
-
-        # Fill missing vacancies with 0
-        all_vacancies = df[entity_col].unique()
-        vacancy_clicks = clicks_by_vacancy.reindex(all_vacancies, fill_value=0).values
-        vacancy_applies = applies_by_vacancy.reindex(all_vacancies, fill_value=0).values
-
-        # Simple mean (total / count)
+    # Calculate per-vacancy metrics directly from columns
+    if metrics['num_vacancies'] > 0 and 'clicks' in df.columns:
         metrics['mean_clicks_per_vacancy'] = metrics['total_clicks'] / metrics['num_vacancies']
         metrics['mean_applies_per_vacancy'] = metrics['total_applies'] / metrics['num_vacancies']
-
-        # Median (robust to outliers)
-        metrics['median_clicks_per_vacancy'] = np.median(vacancy_clicks) if len(vacancy_clicks) > 0 else 0
-        metrics['median_applies_per_vacancy'] = np.median(vacancy_applies) if len(vacancy_applies) > 0 else 0
-
-        # Use simple mean for main metrics
+        metrics['median_clicks_per_vacancy'] = float(np.median(df['clicks'].values))
+        metrics['median_applies_per_vacancy'] = float(np.median(df['applies'].values))
         metrics['clicks_per_vacancy'] = metrics['mean_clicks_per_vacancy']
         metrics['applies_per_vacancy'] = metrics['mean_applies_per_vacancy']
     else:
@@ -528,25 +549,20 @@ def calculate_metrics(df):
     return metrics
 
 def calculate_quartile_metrics(df):
-    """Calculate metrics by performance quartiles (top 25%, middle 50%, bottom 25%) - optimized."""
-    entity_col = 'entity_id' if 'entity_id' in df.columns else df.columns[0]
+    """Calculate metrics by performance quartiles (top 25%, middle 50%, bottom 25%).
 
-    if 'event_name' not in df.columns:
+    Uses pre-aggregated clicks and applies columns directly.
+    """
+    if 'clicks' not in df.columns:
         return None
 
-    # Vectorized groupby operations
-    clicks_by_vacancy = df[df['event_name'] == 'job_visit'].groupby(entity_col).size()
-    applies_by_vacancy = df[df['event_name'] == 'job_apply_start'].groupby(entity_col).size()
-
-    # Fill missing vacancies with 0
-    all_vacancies = df[entity_col].unique()
-    vacancy_clicks = clicks_by_vacancy.reindex(all_vacancies, fill_value=0)
-    vacancy_applies = applies_by_vacancy.reindex(all_vacancies, fill_value=0)
-
-    # Calculate quartile thresholds based on clicks
-    if len(vacancy_clicks) < 4:
+    if len(df) < 4:
         return None  # Need at least 4 vacancies for quartiles
 
+    vacancy_clicks = df['clicks']
+    vacancy_applies = df['applies']
+
+    # Calculate quartile thresholds based on clicks
     q1_threshold = vacancy_clicks.quantile(0.25)
     q3_threshold = vacancy_clicks.quantile(0.75)
 
@@ -559,15 +575,14 @@ def calculate_quartile_metrics(df):
     quartiles = {}
 
     for name, mask in [('top_25', top_25_mask), ('middle_50', middle_50_mask), ('bottom_25', bottom_25_mask)]:
-        ids = vacancy_clicks[mask].index
-        total_clicks = vacancy_clicks[mask].sum()
-        total_applies = vacancy_applies[ids].sum()
-        num_vacancies = len(ids)
+        total_clicks = int(vacancy_clicks[mask].sum())
+        total_applies = int(vacancy_applies[mask].sum())
+        num_vacancies = int(mask.sum())
 
         quartiles[name] = {
             'num_vacancies': num_vacancies,
-            'total_clicks': int(total_clicks),
-            'total_applies': int(total_applies),
+            'total_clicks': total_clicks,
+            'total_applies': total_applies,
             'apply_click_ratio': (total_applies / total_clicks * 100) if total_clicks > 0 else 0,
             'clicks_per_vacancy': total_clicks / num_vacancies if num_vacancies > 0 else 0,
             'applies_per_vacancy': total_applies / num_vacancies if num_vacancies > 0 else 0
@@ -594,8 +609,13 @@ def get_performance_color(value, avg_value, metric_type='ratio'):
 # TAB 1: OVERVIEW DASHBOARD
 # ============================================================================
 
-def create_overview_tab(df):
-    """Create the Overview Dashboard tab."""
+def create_overview_tab(df, daily_totals=None):
+    """Create the Overview Dashboard tab.
+
+    Args:
+        df: The vacancy summary dataframe (one row per vacancy)
+        daily_totals: Pre-aggregated daily totals dataframe (one row per day)
+    """
     st.header("📊 Overview Dashboard")
 
     # Filters in sidebar/expander
@@ -733,25 +753,28 @@ def create_overview_tab(df):
 
     st.markdown("---")
 
-    # Time Series
-    if 'event_date' in filtered_df.columns and 'event_name' in filtered_df.columns:
+    # Time Series (from pre-aggregated daily totals)
+    if daily_totals is not None and len(daily_totals) > 0:
         st.subheader("Trends Over Time")
 
-        daily_clicks = filtered_df[filtered_df['event_name'] == 'job_visit'].groupby(
-            filtered_df['event_date'].dt.date
-        ).size().reset_index(name='Clicks')
+        # Check if any filters are active (beyond default)
+        has_active_filters = False
+        if 'overview_filters' in st.session_state and st.session_state.overview_filters:
+            f = st.session_state.overview_filters
+            if any([f.get('importer'), f.get('company'), f.get('region'),
+                    f.get('occupation'), f.get('upgrades'), f.get('job_title')]):
+                has_active_filters = True
 
-        daily_applies = filtered_df[filtered_df['event_name'] == 'job_apply_start'].groupby(
-            filtered_df['event_date'].dt.date
-        ).size().reset_index(name='Applies')
+        if has_active_filters:
+            st.caption("Note: Trend data shows global site performance (not affected by filters above).")
 
-        daily_data = pd.merge(daily_clicks, daily_applies, on='event_date', how='outer').fillna(0)
+        daily_data = daily_totals.copy()
         daily_data = daily_data.sort_values('event_date')
 
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=daily_data['event_date'], y=daily_data['Clicks'],
+        fig.add_trace(go.Scatter(x=daily_data['event_date'], y=daily_data['clicks'],
                                 name='Clicks', line=dict(color='blue')))
-        fig.add_trace(go.Scatter(x=daily_data['event_date'], y=daily_data['Applies'],
+        fig.add_trace(go.Scatter(x=daily_data['event_date'], y=daily_data['applies'],
                                 name='Applies', line=dict(color='green')))
         fig.update_layout(height=400, hovermode='x unified')
         st.plotly_chart(fig, width='stretch')
@@ -1011,19 +1034,14 @@ def create_vacancy_performance_tab(df, full_df=None):
     else:
         filtered_df = df.copy()
 
-    # Separate clicks and applies
-    clicks_df = filtered_df[filtered_df['event_name'] == 'job_visit'].copy() if 'event_name' in filtered_df.columns else filtered_df.copy()
-    applies_df = filtered_df[filtered_df['event_name'] == 'job_apply_start'].copy() if 'event_name' in filtered_df.columns else pd.DataFrame()
-
-    # Get unique jobs
+    # Each row in filtered_df is already a vacancy with clicks/applies columns
     job_col = 'entity_id' if 'entity_id' in filtered_df.columns else filtered_df.columns[0]
-    job_details = filtered_df.drop_duplicates(subset=[job_col])
 
     vacancy_data = []
-    for _, job in job_details.iterrows():
+    for _, job in filtered_df.iterrows():
         job_id = job[job_col]
-        clicks = len(clicks_df[clicks_df[job_col] == job_id])
-        applies = len(applies_df[applies_df[job_col] == job_id]) if not applies_df.empty else 0
+        clicks = int(job.get('clicks', 0))
+        applies = int(job.get('applies', 0))
         ratio = (applies / clicks * 100) if clicks > 0 else 0
 
         # Get vacancy status from workflow_state
@@ -1037,23 +1055,20 @@ def create_vacancy_performance_tab(df, full_df=None):
 
         if pd.notna(start_date):
             if pd.notna(end_date):
-                # Has both start and end date
                 days_active = (end_date - start_date).days
             elif is_published:
-                # Published but no end date - calculate to today
                 today = pd.Timestamp(datetime.now())
                 days_active = (today - start_date).days
 
         # Get occupation from occupational_fields
         occupation = job.get('occupational_fields', 'Unknown')
         if pd.notna(occupation) and str(occupation).strip():
-            # Handle pipe-separated occupations, take first one
             occupation = str(occupation).split('|')[0].strip()
         else:
             occupation = 'Unknown'
 
         # Get upgrades
-        upgrades_str = ', '.join(job.get('upgrades_list', [])) if 'upgrades_list' in job else ''
+        upgrades_str = ', '.join(job.get('upgrades_list', [])) if 'upgrades_list' in job.index else ''
 
         vacancy_data.append({
             'Title': job.get('title', job.get('organization_name', 'Unknown')),
@@ -1067,8 +1082,8 @@ def create_vacancy_performance_tab(df, full_df=None):
             'Occupation': occupation,
             'Importer': job.get('importer_name', 'Unknown'),
             'Upgrades': upgrades_str if upgrades_str else 'None',
-            'Clicks': int(clicks),
-            'Applies': int(applies),
+            'Clicks': clicks,
+            'Applies': applies,
             'Ratio %': round(ratio, 2) if clicks > 0 else None,
             'Clicks/Day': round(clicks / days_active, 2) if days_active and days_active > 0 else None,
             'Applies/Day': round(applies / days_active, 2) if days_active and days_active > 0 else None
@@ -1082,41 +1097,22 @@ def create_vacancy_performance_tab(df, full_df=None):
         return
 
     # Calculate occupation benchmarks from FULL dataset (static benchmarks)
-    # Build vacancy data from full dataset for benchmarks
-    full_clicks_df = full_df[full_df['event_name'] == 'job_visit'].copy() if 'event_name' in full_df.columns else full_df.copy()
-    full_applies_df = full_df[full_df['event_name'] == 'job_apply_start'].copy() if 'event_name' in full_df.columns else pd.DataFrame()
-    full_job_details = full_df.drop_duplicates(subset=[job_col])
+    # With pre-aggregated data, each row already has clicks/applies
+    full_job_col = 'entity_id' if 'entity_id' in full_df.columns else full_df.columns[0]
 
-    full_vacancy_data = []
-    for _, job in full_job_details.iterrows():
-        full_job_id = job[job_col]
-        full_clicks = len(full_clicks_df[full_clicks_df[job_col] == full_job_id])
-        full_applies = len(full_applies_df[full_applies_df[job_col] == full_job_id]) if not full_applies_df.empty else 0
+    # Build occupation stats directly from the full dataframe
+    full_df_with_occ = full_df.copy()
+    full_df_with_occ['_occupation'] = full_df_with_occ['occupational_fields'].apply(
+        lambda x: str(x).split('|')[0].strip() if pd.notna(x) and str(x).strip() else 'Unknown'
+    )
 
-        # Get occupation
-        occupation = job.get('occupational_fields', 'Unknown')
-        if pd.notna(occupation) and str(occupation).strip():
-            occupation = str(occupation).split('|')[0].strip()
-        else:
-            occupation = 'Unknown'
-
-        full_vacancy_data.append({
-            'Occupation': occupation,
-            'Clicks': int(full_clicks),
-            'Applies': int(full_applies)
-        })
-
-    full_vacancy_df = pd.DataFrame(full_vacancy_data)
-
-    # Calculate occupation benchmarks from full dataset
     occupation_stats = {}
-    if len(full_vacancy_df) > 0 and 'Occupation' in full_vacancy_df.columns:
-        for occupation in full_vacancy_df['Occupation'].unique():
-            occ_vacancies = full_vacancy_df[full_vacancy_df['Occupation'] == occupation]
-            occupation_stats[occupation] = {
-                'avg_clicks': occ_vacancies['Clicks'].mean(),
-                'avg_applies': occ_vacancies['Applies'].mean()
-            }
+    for occupation in full_df_with_occ['_occupation'].unique():
+        occ_vacancies = full_df_with_occ[full_df_with_occ['_occupation'] == occupation]
+        occupation_stats[occupation] = {
+            'avg_clicks': occ_vacancies['clicks'].mean() if 'clicks' in occ_vacancies.columns else 0,
+            'avg_applies': occ_vacancies['applies'].mean() if 'applies' in occ_vacancies.columns else 0
+        }
 
     # Add occupation benchmarks to filtered vacancy data
     if 'Occupation' in vacancy_df.columns:
@@ -1307,7 +1303,7 @@ def main():
     days_back = st.sidebar.slider(
         "Days to Load",
         min_value=7,
-        max_value=90,
+        max_value=365,
         value=30,
         step=7,
         help="Number of days of historical data to load from BigQuery"
@@ -1335,8 +1331,12 @@ def main():
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    status_text.text("Loading data from BigQuery... 0%")
+    status_text.text("Loading vacancy data from BigQuery... 0%")
     df_raw = load_data_from_bigquery(days_back=days_back, sample_size=sample_size)
+    progress_bar.progress(30)
+
+    status_text.text("Loading daily totals... 30%")
+    daily_totals = load_daily_totals(days_back=days_back)
     progress_bar.progress(40)
 
     status_text.text("Loading importer mapping... 40%")
@@ -1389,12 +1389,14 @@ def main():
 
     # Data loading info
     st.sidebar.info(f"📊 Loaded last {days_back} days")
-    st.sidebar.metric("Total Events", f"{len(df):,}")
-    st.sidebar.metric("Unique Vacancies", f"{df['entity_id'].nunique():,}")
+    st.sidebar.metric("Total Vacancies", f"{len(df):,}")
+    if 'clicks' in df.columns:
+        st.sidebar.metric("Total Clicks", f"{int(df['clicks'].sum()):,}")
+        st.sidebar.metric("Total Applies", f"{int(df['applies'].sum()):,}")
     st.sidebar.info(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     if enable_sampling:
-        st.sidebar.warning(f"⚠️ Sampling enabled: showing {len(df):,} of all records")
+        st.sidebar.warning(f"⚠️ Sampling enabled: showing {len(df):,} of all vacancies")
 
     if st.sidebar.button("🔄 Refresh Data"):
         st.cache_data.clear()
@@ -1422,7 +1424,7 @@ def main():
             st.write(f"\n**Unique names in data:** {len(unique_names)}")
             for name in sorted(unique_names):
                 count = len(df[df['importer_name'] == name])
-                st.write(f"'{name}': {count} records")
+                st.write(f"'{name}': {count} vacancies")
 
     # Tabs
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -1433,7 +1435,7 @@ def main():
     ])
 
     with tab1:
-        create_overview_tab(df)
+        create_overview_tab(df, daily_totals=daily_totals)
 
     with tab2:
         create_deep_dive_tab(df)

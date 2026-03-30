@@ -309,8 +309,14 @@ def create_filter_panel(df, key_prefix, default_months=6):
     with col1:
         # Date Range Filter
         if 'event_date' in df.columns and pd.api.types.is_datetime64_any_dtype(df['event_date']):
-            min_date = df['event_date'].min().date()
-            max_date = df['event_date'].max().date()
+            min_date = df['event_date'].dropna().min()
+            max_date = df['event_date'].dropna().max()
+            if pd.isna(min_date) or pd.isna(max_date):
+                min_date = datetime.now().date()
+                max_date = datetime.now().date()
+            else:
+                min_date = min_date.date()
+                max_date = max_date.date()
             default_start = (datetime.now() - timedelta(days=default_months*30)).date()
             default_start = max(default_start, min_date)
 

@@ -402,7 +402,7 @@ def create_filter_panel(df, key_prefix, default_months=6):
             "🔄 Apply Filters",
             key=f'{key_prefix}_apply',
             type="primary",
-            use_container_width=True
+            width='stretch'
         )
 
     st.markdown("---")
@@ -778,33 +778,36 @@ def create_overview_tab(df):
                     'Apply/Click %': round(imp_metrics['apply_click_ratio'], 2)
                 })
 
-            importer_df = pd.DataFrame(importer_stats).sort_values('Mean Clicks', ascending=False)
+            if importer_stats:
+                importer_df = pd.DataFrame(importer_stats).sort_values('Mean Clicks', ascending=False)
 
-            # Create grouped bar chart
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                name='Median Clicks/Vacancy',
-                x=importer_df['Importer'],
-                y=importer_df['Median Clicks'],
-                text=importer_df['Median Clicks'],
-                textposition='auto',
-            ))
-            fig.add_trace(go.Bar(
-                name='Mean Clicks/Vacancy',
-                x=importer_df['Importer'],
-                y=importer_df['Mean Clicks'],
-                text=importer_df['Mean Clicks'],
-                textposition='auto',
-            ))
+                # Create grouped bar chart
+                fig = go.Figure()
+                fig.add_trace(go.Bar(
+                    name='Median Clicks/Vacancy',
+                    x=importer_df['Importer'],
+                    y=importer_df['Median Clicks'],
+                    text=importer_df['Median Clicks'],
+                    textposition='auto',
+                ))
+                fig.add_trace(go.Bar(
+                    name='Mean Clicks/Vacancy',
+                    x=importer_df['Importer'],
+                    y=importer_df['Mean Clicks'],
+                    text=importer_df['Mean Clicks'],
+                    textposition='auto',
+                ))
 
-            fig.update_layout(
-                barmode='group',
-                height=400,
-                xaxis_title='Importer',
-                yaxis_title='Clicks per Vacancy',
-                hovermode='x unified'
-            )
-            st.plotly_chart(fig, width='stretch')
+                fig.update_layout(
+                    barmode='group',
+                    height=400,
+                    xaxis_title='Importer',
+                    yaxis_title='Clicks per Vacancy',
+                    hovermode='x unified'
+                )
+                st.plotly_chart(fig, width='stretch')
+            else:
+                st.info("No importer data available for the selected filters.")
 
     with col2:
         if 'uk_region' in filtered_df.columns:
@@ -823,33 +826,36 @@ def create_overview_tab(df):
                     'Apply/Click %': round(reg_metrics['apply_click_ratio'], 2)
                 })
 
-            region_df = pd.DataFrame(region_stats).sort_values('Mean Clicks', ascending=False)
+            if region_stats:
+                region_df = pd.DataFrame(region_stats).sort_values('Mean Clicks', ascending=False)
 
-            # Create grouped bar chart
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                name='Median Clicks/Vacancy',
-                x=region_df['Region'],
-                y=region_df['Median Clicks'],
-                text=region_df['Median Clicks'],
-                textposition='auto',
-            ))
-            fig.add_trace(go.Bar(
-                name='Mean Clicks/Vacancy',
-                x=region_df['Region'],
-                y=region_df['Mean Clicks'],
-                text=region_df['Mean Clicks'],
-                textposition='auto',
-            ))
+                # Create grouped bar chart
+                fig = go.Figure()
+                fig.add_trace(go.Bar(
+                    name='Median Clicks/Vacancy',
+                    x=region_df['Region'],
+                    y=region_df['Median Clicks'],
+                    text=region_df['Median Clicks'],
+                    textposition='auto',
+                ))
+                fig.add_trace(go.Bar(
+                    name='Mean Clicks/Vacancy',
+                    x=region_df['Region'],
+                    y=region_df['Mean Clicks'],
+                    text=region_df['Mean Clicks'],
+                    textposition='auto',
+                ))
 
-            fig.update_layout(
-                barmode='group',
-                height=400,
-                xaxis_title='Region',
-                yaxis_title='Clicks per Vacancy',
-                hovermode='x unified'
-            )
-            st.plotly_chart(fig, width='stretch')
+                fig.update_layout(
+                    barmode='group',
+                    height=400,
+                    xaxis_title='Region',
+                    yaxis_title='Clicks per Vacancy',
+                    hovermode='x unified'
+                )
+                st.plotly_chart(fig, width='stretch')
+            else:
+                st.info("No region data available for the selected filters.")
 
     st.markdown("---")
 
@@ -916,11 +922,15 @@ def create_deep_dive_tab(df):
                 'Mean Applies/Vac': round(metrics['mean_applies_per_vacancy'], 2)
             })
 
-        benchmark_df = pd.DataFrame(benchmark_data).sort_values('Mean Clicks/Vac', ascending=False)
-        st.dataframe(benchmark_df, use_container_width=True)
+        if benchmark_data:
+            benchmark_df = pd.DataFrame(benchmark_data).sort_values('Mean Clicks/Vac', ascending=False)
+            st.dataframe(benchmark_df, width='stretch')
+        else:
+            st.info("No benchmark data available for the selected filters.")
+            benchmark_df = pd.DataFrame()
 
         # Export
-        csv = benchmark_df.to_csv(index=False).encode('utf-8')
+        csv = benchmark_df.to_csv(index=False).encode('utf-8') if not benchmark_df.empty else b''
         st.download_button(
             "📥 Download Benchmark Data",
             csv,

@@ -144,36 +144,9 @@ def load_data_from_bigquery(days_back=30, sample_size=None):
         if sample_size:
             query += f"\nLIMIT {sample_size}"
 
-        # Create progress indicators
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-
-        # Stage 1: Start query
-        status_text.text("Starting BigQuery query... 0%")
-        progress_bar.progress(10)
-
-        # Stage 2: Submit query
         query_job = client.query(query)
-        status_text.text("Query submitted, waiting for results... 30%")
-        progress_bar.progress(30)
-
-        # Stage 3: Wait for completion
         query_job.result()
-        status_text.text("Query complete, fetching data... 60%")
-        progress_bar.progress(60)
-
-        # Stage 4: Convert to dataframe
         df = query_job.to_dataframe(create_bqstorage_client=False)
-        status_text.text("Processing data... 90%")
-        progress_bar.progress(90)
-
-        # Stage 5: Complete
-        progress_bar.progress(100)
-        status_text.text(f"Complete! Loaded {len(df):,} vacancies")
-
-        # Clean up progress indicators immediately
-        progress_bar.empty()
-        status_text.empty()
 
         return df
     except Exception as e:

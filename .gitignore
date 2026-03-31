@@ -27,6 +27,21 @@ Thumbs.db
 # Streamlit
 .streamlit/secrets.toml
 
-# Data files - jobs-export.csv is too large for GitHub (135MB > 100MB limit)
-# This data will be loaded into BigQuery job_metadata table instead
-jobs-export.csv
+# Data files - large CSVs and exports (loaded into BigQuery instead)
+jobs-export*.csv
+GB_full*.txt
+ga4_regions_list.csv
+entity_regions_locations.csv
+feed_hashes_not_in_csv.csv
+vacancies_*.csv
+unmatched_locations.csv
+location_lookup.csv
+location_lookup_with_regions.csv
+
+# Logs
+logs-*.txt
+
+# Temp/debug files
+Upload location
+check_table_exists.py
+UPLOAD_INSTRUCTIONS.md

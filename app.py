@@ -113,13 +113,18 @@ def load_all_data(days_back=30, sample_size=None):
             applies,
             title,
             organization_name,
-            uk_region,
+            uk_regions,
+            primary_uk_region,
             occupational_fields,
             importer_ID,
+            importer_name,
             workflow_state,
             upgrades,
             start_date,
-            end_date
+            end_date,
+            category,
+            contract_type,
+            employment_type
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
         WHERE last_event_date >= '{cutoff_date}'
         {limit_clause}
@@ -183,19 +188,28 @@ def load_importer_mapping():
 # ============================================================================
 
 def apply_importer_mapping(df, mapping):
-    """Apply importer ID to name mapping using find and replace."""
+    """Apply importer ID to name mapping. Uses BigQuery importer_name as primary,
+    falls back to CSV mapping for any NULLs."""
+    if 'importer_name' in df.columns:
+        # importer_name already comes from BigQuery; fill gaps with CSV mapping
+        df = df.copy()
+        if mapping and 'importer_ID' in df.columns:
+            df['importer_id_str'] = df['importer_ID'].astype(str).str.strip()
+            mask = df['importer_name'].isna() | (df['importer_name'].astype(str).str.strip() == '')
+            df.loc[mask, 'importer_name'] = df.loc[mask, 'importer_id_str'].map(mapping)
+        df['importer_name'] = df['importer_name'].fillna('Unknown')
+        return df
+
     if 'importer_ID' not in df.columns:
         df['importer_name'] = 'Unknown'
         return df
 
-    # Convert importer_ID to string and strip whitespace for matching
+    # Fallback: no importer_name column — use CSV mapping
     df = df.copy()
     df['importer_id_str'] = df['importer_ID'].astype(str).str.strip()
 
     if mapping:
-        # Use map to replace importer IDs with names
         df['importer_name'] = df['importer_id_str'].map(mapping)
-        # For any unmapped values, show the ID
         df['importer_name'] = df['importer_name'].fillna('ID: ' + df['importer_id_str'])
     else:
         df['importer_name'] = 'ID: ' + df['importer_id_str']
@@ -324,9 +338,15 @@ def create_filter_panel(df, key_prefix, default_months=6):
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        # Region Filter
-        if 'uk_region' in df.columns:
-            regions = sorted(df['uk_region'].dropna().unique())
+        # Region Filter — extract all unique regions from pipe-separated uk_regions
+        if 'uk_regions' in df.columns:
+            all_regions = set()
+            for regions_str in df['uk_regions'].dropna():
+                for r in str(regions_str).split(' | '):
+                    r = r.strip()
+                    if r:
+                        all_regions.add(r)
+            regions = sorted(all_regions)
             filters['region'] = st.multiselect(
                 "Region",
                 regions,
@@ -409,9 +429,14 @@ def apply_filters_to_data(df, filters):
     if filters.get('company') and 'organization_name' in filtered.columns:
         filtered = filtered[filtered['organization_name'].isin(filters['company'])]
 
-    # Region Filter
-    if filters.get('region') and 'uk_region' in filtered.columns:
-        filtered = filtered[filtered['uk_region'].isin(filters['region'])]
+    # Region Filter — match vacancies where ANY region in pipe-separated uk_regions matches
+    if filters.get('region') and 'uk_regions' in filtered.columns:
+        selected_regions = set(filters['region'])
+        mask = filtered['uk_regions'].apply(
+            lambda x: bool(selected_regions & set(r.strip() for r in str(x).split(' | ')))
+            if pd.notna(x) else False
+        )
+        filtered = filtered[mask]
 
     # Occupation Filter
     if filters.get('occupation') and 'occupation' in filtered.columns:
@@ -772,11 +797,22 @@ def create_overview_tab(df, daily_totals=None):
                 st.info("No importer data available for the selected filters.")
 
     with col2:
-        if 'uk_region' in filtered_df.columns:
+        if 'uk_regions' in filtered_df.columns:
             st.subheader("Performance by Region")
+            # Explode pipe-separated regions so each region is counted independently
+            # A vacancy in "London | West Midlands" contributes to both region stats
             region_stats = []
-            for region in filtered_df['uk_region'].unique():
-                reg_df = filtered_df[filtered_df['uk_region'] == region]
+            all_regions = set()
+            for regions_str in filtered_df['uk_regions'].dropna():
+                for r in str(regions_str).split(' | '):
+                    r = r.strip()
+                    if r:
+                        all_regions.add(r)
+            for region in all_regions:
+                reg_mask = filtered_df['uk_regions'].apply(
+                    lambda x: region in [r.strip() for r in str(x).split(' | ')] if pd.notna(x) else False
+                )
+                reg_df = filtered_df[reg_mask]
                 reg_metrics = calculate_metrics(reg_df)
                 region_stats.append({
                     'Region': region,
@@ -862,27 +898,55 @@ def create_deep_dive_tab(df):
 
     column_map = {
         'Importer': 'importer_name',
-        'Region': 'uk_region',
+        'Region': 'uk_regions',
         'Occupation': 'occupation',
         'Company': 'organization_name'
     }
 
-    if column_map[dimension] in filtered_df.columns:
+    col_name = column_map[dimension]
+    if col_name in filtered_df.columns:
         benchmark_data = []
-        for value in filtered_df[column_map[dimension]].unique():
-            subset = filtered_df[filtered_df[column_map[dimension]] == value]
-            metrics = calculate_metrics(subset)
-            benchmark_data.append({
-                dimension: value,
-                'Vacancies': metrics['num_vacancies'],
-                'Total Clicks': metrics['total_clicks'],
-                'Total Applies': metrics['total_applies'],
-                'Apply/Click %': round(metrics['apply_click_ratio'], 2),
-                'Median Clicks/Vac': round(metrics['median_clicks_per_vacancy'], 1),
-                'Mean Clicks/Vac': round(metrics['mean_clicks_per_vacancy'], 1),
-                'Median Applies/Vac': round(metrics['median_applies_per_vacancy'], 2),
-                'Mean Applies/Vac': round(metrics['mean_applies_per_vacancy'], 2)
-            })
+
+        if dimension == 'Region':
+            # Regions are pipe-separated — explode for per-region stats
+            all_values = set()
+            for regions_str in filtered_df[col_name].dropna():
+                for r in str(regions_str).split(' | '):
+                    r = r.strip()
+                    if r:
+                        all_values.add(r)
+            for value in all_values:
+                mask = filtered_df[col_name].apply(
+                    lambda x: value in [r.strip() for r in str(x).split(' | ')] if pd.notna(x) else False
+                )
+                subset = filtered_df[mask]
+                metrics = calculate_metrics(subset)
+                benchmark_data.append({
+                    dimension: value,
+                    'Vacancies': metrics['num_vacancies'],
+                    'Total Clicks': metrics['total_clicks'],
+                    'Total Applies': metrics['total_applies'],
+                    'Apply/Click %': round(metrics['apply_click_ratio'], 2),
+                    'Median Clicks/Vac': round(metrics['median_clicks_per_vacancy'], 1),
+                    'Mean Clicks/Vac': round(metrics['mean_clicks_per_vacancy'], 1),
+                    'Median Applies/Vac': round(metrics['median_applies_per_vacancy'], 2),
+                    'Mean Applies/Vac': round(metrics['mean_applies_per_vacancy'], 2)
+                })
+        else:
+            for value in filtered_df[col_name].unique():
+                subset = filtered_df[filtered_df[col_name] == value]
+                metrics = calculate_metrics(subset)
+                benchmark_data.append({
+                    dimension: value,
+                    'Vacancies': metrics['num_vacancies'],
+                    'Total Clicks': metrics['total_clicks'],
+                    'Total Applies': metrics['total_applies'],
+                    'Apply/Click %': round(metrics['apply_click_ratio'], 2),
+                    'Median Clicks/Vac': round(metrics['median_clicks_per_vacancy'], 1),
+                    'Mean Clicks/Vac': round(metrics['mean_clicks_per_vacancy'], 1),
+                    'Median Applies/Vac': round(metrics['median_applies_per_vacancy'], 2),
+                    'Mean Applies/Vac': round(metrics['mean_applies_per_vacancy'], 2)
+                })
 
         if benchmark_data:
             benchmark_df = pd.DataFrame(benchmark_data).sort_values('Mean Clicks/Vac', ascending=False)
@@ -905,12 +969,22 @@ def create_deep_dive_tab(df):
     # Heatmap
     st.subheader("🗺️ Performance Heatmap")
 
-    if 'uk_region' in filtered_df.columns and 'importer_name' in filtered_df.columns:
+    if 'uk_regions' in filtered_df.columns and 'importer_name' in filtered_df.columns:
         heatmap_data = []
-        for region in filtered_df['uk_region'].unique():
+        # Explode regions for heatmap
+        all_regions = set()
+        for regions_str in filtered_df['uk_regions'].dropna():
+            for r in str(regions_str).split(' | '):
+                r = r.strip()
+                if r:
+                    all_regions.add(r)
+        for region in all_regions:
+            reg_mask = filtered_df['uk_regions'].apply(
+                lambda x: region in [r.strip() for r in str(x).split(' | ')] if pd.notna(x) else False
+            )
             for importer in filtered_df['importer_name'].unique():
                 subset = filtered_df[
-                    (filtered_df['uk_region'] == region) &
+                    reg_mask &
                     (filtered_df['importer_name'] == importer)
                 ]
                 if len(subset) > 0:
@@ -1017,7 +1091,7 @@ def create_vacancy_performance_tab(df, full_df=None):
             'Start Date': start_date if pd.notna(start_date) else None,
             'End Date': end_date if pd.notna(end_date) else None,
             'Days Active': int(days_active) if days_active is not None and days_active > 0 else None,
-            'Region': job.get('uk_region', 'Unknown'),
+            'Region': job.get('uk_regions', 'Unknown'),
             'Occupation': occupation,
             'Importer': job.get('importer_name', 'Unknown'),
             'Upgrades': upgrades_str if upgrades_str else 'None',

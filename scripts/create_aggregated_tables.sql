@@ -23,15 +23,20 @@ SELECT
   COUNTIF(event_name = 'job_apply_start') as applies,
 
   -- Dimensions (take first non-null value per vacancy)
-  ANY_VALUE(title_export) as title,
+  ANY_VALUE(title) as title,
   ANY_VALUE(organization_name) as organization_name,
-  ANY_VALUE(location_region_matched) as uk_region,
-  ANY_VALUE(occupational_fields_export) as occupational_fields,
+  ANY_VALUE(uk_regions_all) as uk_regions,
+  ANY_VALUE(primary_uk_region) as primary_uk_region,
+  ANY_VALUE(occupational_fields) as occupational_fields,
   ANY_VALUE(importer_ID) as importer_ID,
+  ANY_VALUE(importer_name) as importer_name,
   ANY_VALUE(workflow_state) as workflow_state,
   ANY_VALUE(upgrades) as upgrades,
   ANY_VALUE(publishing_date) as start_date,
-  ANY_VALUE(expiration_date) as end_date
+  ANY_VALUE(expiration_date) as end_date,
+  ANY_VALUE(category) as category,
+  ANY_VALUE(contract_type) as contract_type,
+  ANY_VALUE(employment_type) as employment_type
 
 FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
 WHERE event_name IN ('job_visit', 'job_apply_start')

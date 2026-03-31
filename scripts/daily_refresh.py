@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Daily refresh script for the Job Performance Dashboard.
 
-Runs three steps in sequence:
+Runs four steps in sequence:
 1. Incremental sync: Append new events from the source table
-2. Rebuild enriched table: Re-join with metadata and location lookup
-3. Rebuild aggregated tables: Pre-compute vacancy summary and daily totals
+2. Sync feeds: Update job_metadata from XML feeds
+3. Rebuild enriched table: Re-join with metadata and location lookup
+4. Rebuild aggregated tables: Pre-compute vacancy summary and daily totals
 
 Can be run manually, via cron, or as a GitHub Action.
 
@@ -15,6 +16,7 @@ Usage:
 
 import os
 import sys
+import subprocess
 import argparse
 from datetime import datetime
 
@@ -88,6 +90,9 @@ def verify_tables(client):
 
     tables = [
         ('job_performance_details_combined', 'MAX(event_date)'),
+        ('job_metadata', 'MAX(last_updated)'),
+        ('vacancy_locations', 'COUNT(DISTINCT entity_id)'),
+        ('feed_jobs_latest', 'MAX(last_seen)'),
         ('job_performance_enriched', 'MAX(event_date_parsed)'),
         ('dashboard_vacancy_summary', 'MAX(last_event_date)'),
         ('dashboard_daily_totals', 'MAX(event_date)'),
@@ -120,18 +125,38 @@ def main():
         print("FAILED at step 1. Aborting.")
         sys.exit(1)
 
-    # Step 2: Rebuild enriched table
+    # Step 2: Sync feeds to update job_metadata
+    print(f"\n{'='*60}")
+    print("Step: Sync job feeds (update job_metadata)")
+    sync_feeds_path = os.path.join(script_dir, 'sync_feeds.py')
+    if args.dry_run:
+        print("  [DRY RUN] Would run sync_feeds.py")
+    else:
+        result = subprocess.run(
+            [sys.executable, sync_feeds_path],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            print(f"  WARNING: Feed sync failed:\n{result.stderr}")
+            print("  Continuing with existing feed data...")
+        else:
+            # Print last few lines of output as summary
+            output_lines = result.stdout.strip().split('\n')
+            for line in output_lines[-5:]:
+                print(f"  {line}")
+
+    # Step 3: Rebuild enriched table
     ok = run_sql_file(client, 'refresh_enriched_table.sql',
-                      'Rebuild enriched table with metadata', args.dry_run)
+                      'Rebuild enriched table with metadata + locations', args.dry_run)
     if not ok:
-        print("FAILED at step 2. Aborting.")
+        print("FAILED at step 3. Aborting.")
         sys.exit(1)
 
-    # Step 3: Rebuild aggregated tables
+    # Step 4: Rebuild aggregated tables
     ok = run_sql_file(client, 'create_aggregated_tables.sql',
                       'Rebuild dashboard summary tables', args.dry_run)
     if not ok:
-        print("FAILED at step 3. Aborting.")
+        print("FAILED at step 4. Aborting.")
         sys.exit(1)
 
     # Verify

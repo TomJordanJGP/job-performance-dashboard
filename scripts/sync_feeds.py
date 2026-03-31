@@ -303,23 +303,40 @@ def sync_to_bigquery(client, all_records, dry_run=False):
 
     # Report jobs inserted from feeds that have no entity_id (need Jobiqo export to get one)
     missing_entity_sql = f"""
-    SELECT external_id, title, organization_profile_name, locations, workflow_state
+    SELECT external_id, title, organization_profile_name, locations, workflow_state,
+           publishing_date, last_updated
     FROM `{BQ_PROJECT}.{BQ_DATASET}.job_metadata`
     WHERE (entity_id IS NULL OR entity_id = '')
       AND external_id IS NOT NULL AND external_id != ''
-    ORDER BY title
+    ORDER BY last_updated DESC
     """
     missing_df = client.query(missing_entity_sql).to_dataframe()
     if len(missing_df) > 0:
-        print(f"\n  {len(missing_df):,} vacancies without entity_id (inserted from feeds):")
-        for _, row in missing_df.iterrows():
-            print(f"    {row['external_id'][:20]}...  {row['title'][:50]:50s}  {row['organization_profile_name'][:30]}")
-        # Save to CSV for easy reference
-        output_path = os.path.join(project_dir, 'vacancies_missing_entity_id.csv')
-        missing_df.to_csv(output_path, index=False)
-        print(f"  Saved full list to: vacancies_missing_entity_id.csv")
+        print(f"\n  ⚠️  {len(missing_df):,} vacancies without entity_id (need Jobiqo export):")
+        for _, row in missing_df.head(20).iterrows():
+            ext_id = str(row['external_id'])[:20]
+            title = str(row.get('title', ''))[:50]
+            org = str(row.get('organization_profile_name', ''))[:30]
+            print(f"    {ext_id:20s}  {title:50s}  {org}")
+        if len(missing_df) > 20:
+            print(f"    ... and {len(missing_df) - 20} more")
+
+        # Write to BigQuery table so it's always queryable
+        missing_table = f"{BQ_PROJECT}.{BQ_DATASET}.vacancies_missing_entity_id"
+        job_config = bigquery.LoadJobConfig(write_disposition='WRITE_TRUNCATE')
+        job = client.load_table_from_dataframe(missing_df, missing_table, job_config=job_config)
+        job.result()
+        print(f"  Written to BigQuery: vacancies_missing_entity_id ({len(missing_df)} rows)")
+
+        # Also save locally if running locally
+        try:
+            output_path = os.path.join(project_dir, 'vacancies_missing_entity_id.csv')
+            missing_df.to_csv(output_path, index=False)
+            print(f"  Saved locally: vacancies_missing_entity_id.csv")
+        except Exception:
+            pass  # May fail in CI environment, that's fine
     else:
-        print(f"\n  All vacancies have an entity_id")
+        print(f"\n  ✅ All vacancies have an entity_id")
 
     # Mark jobs no longer in any feed as unpublished
     unpublish_sql = f"""

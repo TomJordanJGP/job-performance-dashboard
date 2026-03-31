@@ -136,14 +136,16 @@ def main():
             [sys.executable, sync_feeds_path],
             capture_output=True, text=True
         )
-        if result.returncode != 0:
-            print(f"  WARNING: Feed sync failed:\n{result.stderr}")
-            print("  Continuing with existing feed data...")
-        else:
-            # Print last few lines of output as summary
-            output_lines = result.stdout.strip().split('\n')
-            for line in output_lines[-5:]:
+        # Always print full output for visibility (especially in GitHub Actions logs)
+        if result.stdout.strip():
+            for line in result.stdout.strip().split('\n'):
                 print(f"  {line}")
+        if result.returncode != 0:
+            print(f"  WARNING: Feed sync failed (exit code {result.returncode}):")
+            if result.stderr.strip():
+                for line in result.stderr.strip().split('\n'):
+                    print(f"  STDERR: {line}")
+            print("  Continuing with existing feed data...")
 
     # Step 3: Rebuild enriched table
     ok = run_sql_file(client, 'refresh_enriched_table.sql',

@@ -147,6 +147,12 @@ def main():
                     print(f"  STDERR: {line}")
             print("  Continuing with existing feed data...")
 
+    # Step 2.5: Enrich from HQ addresses
+    ok = run_sql_file(client, 'enrich_from_hq.sql',
+                      'Enrich job_metadata with HQ region/county', args.dry_run)
+    if not ok:
+        print("  WARNING: HQ enrichment failed. Continuing with existing data...")
+
     # Step 3: Rebuild enriched table
     ok = run_sql_file(client, 'refresh_enriched_table.sql',
                       'Rebuild enriched table with metadata + locations', args.dry_run)

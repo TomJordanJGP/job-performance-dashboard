@@ -63,7 +63,7 @@ SELECT
   ) as organization_name,
 
   -- Organisation ID
-  IF(events.organization_id IS NOT NULL AND events.organization_id != 0,
+  IF(events.organization_id IS NOT NULL AND events.organization_id NOT IN (0, -1),
     CAST(events.organization_id AS STRING), metadata.organization_id
   ) as organization_id,
 
@@ -106,12 +106,12 @@ SELECT
   metadata.salary_unit,
   metadata.last_updated as metadata_last_updated,
 
-  -- Location regions from vacancy_locations (exploded table)
-  -- uk_regions_all: pipe-separated list of ALL regions for display
-  -- primary_uk_region: single region for sorting/grouping
-  vloc.uk_regions_all,
-  vloc.primary_uk_region,
-  vloc.primary_town_city
+  -- Location regions: HQ is primary (single-location), vacancy_locations is fallback (multi-location)
+  COALESCE(metadata.hq_region, vloc.uk_regions_all) as uk_regions_all,
+  COALESCE(metadata.hq_region, vloc.primary_uk_region) as primary_uk_region,
+  COALESCE(metadata.hq_county, vloc.primary_town_city) as primary_town_city,
+  metadata.hq_region,
+  metadata.hq_county
 
 FROM `site-monitoring-421401.job_data_export.job_performance_details_combined` AS events
 LEFT JOIN `site-monitoring-421401.job_data_export.job_metadata` AS metadata

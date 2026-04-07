@@ -1437,11 +1437,11 @@ def create_sales_intelligence_tab(df):
                         return styles
 
                     styled = clicks_table.style.apply(highlight_vs_baseline, axis=1).format('{:.1f}', na_rep='—')
-                    st.dataframe(styled, use_container_width=True, height=min(400, 35 * len(clicks_table) + 40))
+                    st.dataframe(styled, width='stretch', height=min(400, 35 * len(clicks_table) + 40))
 
                 with tab_applies:
                     styled = applies_table.style.apply(highlight_vs_baseline, axis=1).format('{:.1f}', na_rep='—')
-                    st.dataframe(styled, use_container_width=True, height=min(400, 35 * len(applies_table) + 40))
+                    st.dataframe(styled, width='stretch', height=min(400, 35 * len(applies_table) + 40))
 
                 st.caption("Green = >10% above 'No Upgrade' baseline | Red = >10% below | Grey = baseline")
             else:
@@ -1526,7 +1526,7 @@ def create_sales_intelligence_tab(df):
                     'Avg Applies': '{:.1f}', 'Sector Avg Applies': '{:.1f}',
                     'Clicks vs Sector %': '{:+.1f}%', 'Applies vs Sector %': '{:+.1f}%'
                 })
-                st.dataframe(styled, use_container_width=True, hide_index=True)
+                st.dataframe(styled, width='stretch', hide_index=True)
     else:
         st.info("No data available for client scorecards.")
 
@@ -1576,7 +1576,7 @@ def create_sales_intelligence_tab(df):
                         'Sector Avg Clicks': '{:.1f}',
                         'Sector Avg Applies': '{:.1f}'
                     }),
-                    use_container_width=True,
+                    width='stretch',
                     hide_index=True,
                     height=min(600, 35 * len(display_df) + 40)
                 )
@@ -1627,15 +1627,37 @@ def create_sales_intelligence_tab(df):
                           'Median Applies', 'Mean Applies', 'Apply Rate %', 'Avg Days Live']
 
         if len(sector) > 0:
+            def _gradient_green(val, col_min, col_max):
+                if pd.isna(val) or col_max == col_min:
+                    return ''
+                pct = (val - col_min) / (col_max - col_min)
+                r = int(245 - pct * 47)
+                g = int(245 - pct * 12)
+                b = int(245 - pct * 47)
+                return f'background-color: rgb({r},{g},{b})'
+
+            def apply_manual_gradient(df_styled, col, color='green'):
+                col_data = sector[col].dropna()
+                if len(col_data) == 0:
+                    return df_styled
+                cmin, cmax = col_data.min(), col_data.max()
+                if color == 'green':
+                    return df_styled.map(lambda v: f'background-color: rgba(34,139,34,{min((v-cmin)/(cmax-cmin),1)*0.3:.2f})' if pd.notna(v) and cmax > cmin else '', subset=[col])
+                elif color == 'blue':
+                    return df_styled.map(lambda v: f'background-color: rgba(30,90,200,{min((v-cmin)/(cmax-cmin),1)*0.3:.2f})' if pd.notna(v) and cmax > cmin else '', subset=[col])
+                else:
+                    return df_styled.map(lambda v: f'background-color: rgba(220,120,20,{min((v-cmin)/(cmax-cmin),1)*0.3:.2f})' if pd.notna(v) and cmax > cmin else '', subset=[col])
+
             styled = sector.style.format({
                 'Median Clicks': '{:.0f}', 'Mean Clicks': '{:.1f}',
                 'Median Applies': '{:.0f}', 'Mean Applies': '{:.1f}',
                 'Apply Rate %': '{:.1f}%', 'Avg Days Live': '{:.0f}'
-            }).background_gradient(subset=['Median Clicks'], cmap='Greens') \
-              .background_gradient(subset=['Median Applies'], cmap='Blues') \
-              .background_gradient(subset=['Apply Rate %'], cmap='Oranges')
+            })
+            styled = apply_manual_gradient(styled, 'Median Clicks', 'green')
+            styled = apply_manual_gradient(styled, 'Median Applies', 'blue')
+            styled = apply_manual_gradient(styled, 'Apply Rate %', 'orange')
 
-            st.dataframe(styled, use_container_width=True, hide_index=True,
+            st.dataframe(styled, width='stretch', hide_index=True,
                          height=min(600, 35 * len(sector) + 40))
         else:
             st.info("Not enough data (need 5+ vacancies per occupation).")
@@ -1726,7 +1748,7 @@ def create_launch_timing_tab(launch_df):
                           text='Shaded = Weekend', showarrow=False,
                           font=dict(size=10, color='grey'))]
     )
-    st.plotly_chart(fig1, use_container_width=True)
+    st.plotly_chart(fig1, width='stretch')
 
     # ------------------------------------------------------------------
     # Chart 2: Performance curve by launch day of week
@@ -1758,7 +1780,7 @@ def create_launch_timing_tab(launch_df):
         hovermode='x unified',
         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
     )
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, width='stretch')
 
     # ------------------------------------------------------------------
     # Summary table: first 7 days total by launch day
@@ -1782,10 +1804,20 @@ def create_launch_timing_tab(launch_df):
 
     summary.columns = ['Launch Day', 'Vacancies', 'Avg Clicks (First 7 Days)', 'Avg Applies (First 7 Days)']
 
-    styled = summary.style.background_gradient(subset=['Avg Clicks (First 7 Days)'], cmap='Greens') \
-                          .background_gradient(subset=['Avg Applies (First 7 Days)'], cmap='Blues') \
-                          .format({'Avg Clicks (First 7 Days)': '{:.1f}', 'Avg Applies (First 7 Days)': '{:.1f}'})
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    def _manual_grad(df_styled, col, r, g, b):
+        col_data = summary[col].dropna()
+        if len(col_data) == 0:
+            return df_styled
+        cmin, cmax = col_data.min(), col_data.max()
+        return df_styled.map(
+            lambda v: f'background-color: rgba({r},{g},{b},{min((v-cmin)/(cmax-cmin),1)*0.3:.2f})'
+            if pd.notna(v) and cmax > cmin else '', subset=[col]
+        )
+
+    styled = summary.style.format({'Avg Clicks (First 7 Days)': '{:.1f}', 'Avg Applies (First 7 Days)': '{:.1f}'})
+    styled = _manual_grad(styled, 'Avg Clicks (First 7 Days)', 34, 139, 34)
+    styled = _manual_grad(styled, 'Avg Applies (First 7 Days)', 30, 90, 200)
+    st.dataframe(styled, width='stretch', hide_index=True)
 
 
 # ============================================================================

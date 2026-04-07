@@ -1365,85 +1365,177 @@ def create_sales_intelligence_tab(df):
     # Section 1: Upgrade ROI
     # ------------------------------------------------------------------
     st.subheader("1. Upgrade ROI by Occupation")
-    st.caption("Average clicks and applies per vacancy — upgraded vs non-upgraded, broken down by occupation and upgrade type.")
+
+    st.info(
+        "**Methodology:** Figures show average clicks/applies per vacancy for each occupation and upgrade type. "
+        "Only vacancies with a **single upgrade** (or no upgrade) are included to avoid double-counting. "
+        "Vacancy counts shown in brackets — figures from small samples (n<10) are marked with * and should be treated with caution. "
+        "Occupations with fewer than 5 vacancies are excluded."
+    )
 
     if len(filtered_df) > 0 and 'upgrades_list' in filtered_df.columns:
-        # Build a row per vacancy × upgrade type (exploded), plus "No Upgrade" rows
-        rows = []
-        for _, v in filtered_df.iterrows():
-            occ = v.get('occupation', 'Unknown')
-            clicks = v.get('clicks', 0)
-            applies = v.get('applies', 0)
-            upgrades = v.get('upgrades_list', [])
+        # Classify each vacancy
+        work_df = filtered_df.copy()
+        work_df['upgrade_count'] = work_df['upgrades_list'].apply(len)
+        work_df['upgrade_category'] = work_df['upgrades_list'].apply(
+            lambda x: 'No Upgrade' if not x else (x[0] if len(x) == 1 else ' + '.join(sorted(x)))
+        )
 
-            if not upgrades:
-                rows.append({'occupation': occ, 'upgrade': 'No Upgrade', 'clicks': clicks, 'applies': applies})
-            else:
-                for u in upgrades:
-                    rows.append({'occupation': occ, 'upgrade': u, 'clicks': clicks, 'applies': applies})
+        # ---- Primary view: single-upgrade vacancies only ----
+        single_df = work_df[work_df['upgrade_count'] <= 1].copy()
 
-        exploded = pd.DataFrame(rows)
+        if len(single_df) > 0:
+            # Aggregate: occupation × upgrade → mean clicks/applies + count
+            agg = single_df.groupby(['occupation', 'upgrade_category']).agg(
+                avg_clicks=('clicks', 'mean'),
+                avg_applies=('applies', 'mean'),
+                n=('clicks', 'count')
+            ).reset_index()
 
-        if len(exploded) > 0:
-            # Pivot: occupation × upgrade → avg clicks
-            pivot_clicks = exploded.groupby(['occupation', 'upgrade'])['clicks'].mean().reset_index()
-            pivot_applies = exploded.groupby(['occupation', 'upgrade'])['applies'].mean().reset_index()
-            pivot_count = exploded.groupby(['occupation', 'upgrade'])['clicks'].count().reset_index().rename(columns={'clicks': 'count'})
-
-            clicks_table = pivot_clicks.pivot(index='occupation', columns='upgrade', values='clicks').round(1)
-            applies_table = pivot_applies.pivot(index='occupation', columns='upgrade', values='applies').round(1)
-            count_table = pivot_count.pivot(index='occupation', columns='upgrade', values='count')
+            # Pivot to tables
+            clicks_table = agg.pivot(index='occupation', columns='upgrade_category', values='avg_clicks').round(1)
+            applies_table = agg.pivot(index='occupation', columns='upgrade_category', values='avg_applies').round(1)
+            count_table = agg.pivot(index='occupation', columns='upgrade_category', values='n').fillna(0).astype(int)
 
             # Ensure "No Upgrade" is first column
-            cols = list(clicks_table.columns)
-            if 'No Upgrade' in cols:
-                cols.remove('No Upgrade')
-                cols = ['No Upgrade'] + sorted(cols)
-                clicks_table = clicks_table[cols]
-                applies_table = applies_table[cols]
-                count_table = count_table.reindex(columns=cols)
+            for tbl in [clicks_table, applies_table, count_table]:
+                cols = list(tbl.columns)
+                if 'No Upgrade' in cols:
+                    cols.remove('No Upgrade')
+                    cols = ['No Upgrade'] + sorted(cols)
 
-            # Filter out occupations with very few vacancies
+            clicks_table = clicks_table.reindex(columns=cols)
+            applies_table = applies_table.reindex(columns=cols)
+            count_table = count_table.reindex(columns=cols).fillna(0).astype(int)
+
+            # Filter: 5+ vacancies per occupation
             total_per_occ = count_table.sum(axis=1)
-            clicks_table = clicks_table[total_per_occ >= 5]
-            applies_table = applies_table[total_per_occ >= 5]
-            count_table = count_table[total_per_occ >= 5]
+            mask = total_per_occ >= 5
+            clicks_table = clicks_table[mask]
+            applies_table = applies_table[mask]
+            count_table = count_table[mask]
 
             if len(clicks_table) > 0:
                 # Sort by total vacancy count descending
                 sort_order = count_table.sum(axis=1).sort_values(ascending=False).index
                 clicks_table = clicks_table.loc[sort_order]
                 applies_table = applies_table.loc[sort_order]
+                count_table = count_table.loc[sort_order]
 
-                tab_clicks, tab_applies = st.tabs(["Avg Clicks per Vacancy", "Avg Applies per Vacancy"])
+                # Build display tables with "value (n=X)" format
+                def build_display_table(val_table, cnt_table):
+                    display = val_table.copy().astype(str)
+                    for col in display.columns:
+                        for idx in display.index:
+                            v = val_table.at[idx, col]
+                            n = int(cnt_table.at[idx, col]) if idx in cnt_table.index and col in cnt_table.columns else 0
+                            if pd.isna(v) or n == 0:
+                                display.at[idx, col] = '—'
+                            else:
+                                flag = '*' if n < 10 else ''
+                                display.at[idx, col] = f'{v:.1f} (n={n}){flag}'
+                    return display
 
-                with tab_clicks:
-                    # Style: highlight cells higher than "No Upgrade" baseline
-                    def highlight_vs_baseline(row):
-                        baseline = row.get('No Upgrade', 0)
+                # Build uplift tables (% vs No Upgrade baseline)
+                def build_uplift_table(val_table):
+                    uplift = val_table.copy()
+                    if 'No Upgrade' not in uplift.columns:
+                        return None
+                    for col in uplift.columns:
+                        if col == 'No Upgrade':
+                            uplift[col] = '—'
+                        else:
+                            for idx in uplift.index:
+                                v = val_table.at[idx, col]
+                                baseline = val_table.at[idx, 'No Upgrade']
+                                if pd.isna(v) or pd.isna(baseline) or baseline == 0:
+                                    uplift.at[idx, col] = '—'
+                                else:
+                                    pct = ((v - baseline) / baseline) * 100
+                                    uplift.at[idx, col] = f'{pct:+.0f}%'
+                    return uplift
+
+                # View toggle
+                view_mode = st.radio(
+                    "Display mode", ["Absolute values", "% uplift vs No Upgrade"],
+                    horizontal=True, key='upgrade_roi_mode'
+                )
+
+                tab_clicks, tab_applies = st.tabs(["Clicks per Vacancy", "Applies per Vacancy"])
+
+                def style_display(display_df, val_table):
+                    """Apply green/red highlighting vs No Upgrade baseline."""
+                    def highlight_row(row):
+                        baseline_key = 'No Upgrade'
                         styles = []
                         for col in row.index:
-                            val = row[col]
-                            if pd.isna(val) or pd.isna(baseline):
-                                styles.append('')
-                            elif col == 'No Upgrade':
+                            cell = row[col]
+                            if col == baseline_key:
                                 styles.append('background-color: #f0f0f0')
-                            elif val > baseline * 1.1:
-                                styles.append('background-color: #c6efce')
-                            elif val < baseline * 0.9:
-                                styles.append('background-color: #ffc7ce')
-                            else:
+                            elif cell == '—' or baseline_key not in val_table.columns:
                                 styles.append('')
-                        return styles
+                            else:
+                                idx = row.name
+                                v = val_table.at[idx, col] if col in val_table.columns else None
+                                b = val_table.at[idx, baseline_key] if baseline_key in val_table.columns else None
+                                if pd.isna(v) or pd.isna(b) or b == 0:
+                                    styles.append('')
+                                elif v > b * 1.1:
+                                    styles.append('background-color: #c6efce')
+                                elif v < b * 0.9:
+                                    styles.append('background-color: #ffc7ce')
+                                else:
+                                    styles.append('')
+                            return styles
+                    return display_df.style.apply(highlight_row, axis=1)
 
-                    styled = clicks_table.style.apply(highlight_vs_baseline, axis=1).format('{:.1f}', na_rep='—')
-                    st.dataframe(styled, width='stretch', height=min(400, 35 * len(clicks_table) + 40))
+                with tab_clicks:
+                    if view_mode == "Absolute values":
+                        display = build_display_table(clicks_table, count_table)
+                    else:
+                        display = build_uplift_table(clicks_table)
+                    if display is not None:
+                        styled = style_display(display, clicks_table)
+                        st.dataframe(styled, width='stretch', height=min(500, 35 * len(display) + 40))
 
                 with tab_applies:
-                    styled = applies_table.style.apply(highlight_vs_baseline, axis=1).format('{:.1f}', na_rep='—')
-                    st.dataframe(styled, width='stretch', height=min(400, 35 * len(applies_table) + 40))
+                    if view_mode == "Absolute values":
+                        display = build_display_table(applies_table, count_table)
+                    else:
+                        display = build_uplift_table(applies_table)
+                    if display is not None:
+                        styled = style_display(display, applies_table)
+                        st.dataframe(styled, width='stretch', height=min(500, 35 * len(display) + 40))
 
-                st.caption("Green = >10% above 'No Upgrade' baseline | Red = >10% below | Grey = baseline")
+                st.caption("Green = >10% above 'No Upgrade' baseline | Red = >10% below | Grey = baseline | * = small sample (n<10)")
+
+                # ---- Secondary view: multi-upgrade combinations ----
+                multi_df = work_df[work_df['upgrade_count'] > 1]
+                if len(multi_df) > 0:
+                    with st.expander(f"Upgrade Combinations ({len(multi_df)} vacancies with multiple upgrades)"):
+                        combo_agg = multi_df.groupby('upgrade_category').agg(
+                            vacancies=('clicks', 'count'),
+                            avg_clicks=('clicks', 'mean'),
+                            avg_applies=('applies', 'mean')
+                        ).reset_index().sort_values('vacancies', ascending=False)
+                        combo_agg.columns = ['Upgrade Combination', 'Vacancies', 'Avg Clicks', 'Avg Applies']
+
+                        # Add baseline comparison
+                        no_upgrade_clicks = single_df[single_df['upgrade_category'] == 'No Upgrade']['clicks'].mean()
+                        no_upgrade_applies = single_df[single_df['upgrade_category'] == 'No Upgrade']['applies'].mean()
+                        if no_upgrade_clicks and no_upgrade_clicks > 0:
+                            combo_agg['Clicks vs No Upgrade'] = combo_agg['Avg Clicks'].apply(
+                                lambda x: f'{((x / no_upgrade_clicks) - 1) * 100:+.0f}%')
+                        if no_upgrade_applies and no_upgrade_applies > 0:
+                            combo_agg['Applies vs No Upgrade'] = combo_agg['Avg Applies'].apply(
+                                lambda x: f'{((x / no_upgrade_applies) - 1) * 100:+.0f}%')
+
+                        st.dataframe(
+                            combo_agg.style.format({'Avg Clicks': '{:.1f}', 'Avg Applies': '{:.1f}'}),
+                            width='stretch', hide_index=True
+                        )
+                        st.caption("These vacancies had multiple upgrades applied simultaneously. "
+                                   "Performance shown is for the full combination, not individual upgrade types.")
             else:
                 st.info("Not enough data (need 5+ vacancies per occupation).")
     else:

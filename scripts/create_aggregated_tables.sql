@@ -57,3 +57,22 @@ SELECT
 FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
 WHERE event_name IN ('job_visit', 'job_apply_start')
 GROUP BY event_date_parsed;
+
+
+-- Table 3: Per-vacancy media source breakdown (one row per vacancy + source combo)
+-- Used for: Client Report tab — media performance section
+-- Shows which traffic sources (organic, PPC, email, etc.) drive views and applies
+CREATE OR REPLACE TABLE `site-monitoring-421401.job_data_export.dashboard_media_summary`
+AS
+SELECT
+  entity_id_str,
+  importer_ID,
+  ANY_VALUE(importer_name) as importer_name,
+  source,
+  medium,
+  campaign,
+  COUNTIF(event_name = 'job_visit') as clicks,
+  COUNTIF(event_name = 'job_apply_start') as applies
+FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
+WHERE event_name IN ('job_visit', 'job_apply_start')
+GROUP BY entity_id_str, importer_ID, source, medium, campaign;

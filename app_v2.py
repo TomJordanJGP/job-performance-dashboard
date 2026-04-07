@@ -20,6 +20,7 @@ BQ_PROJECT_ID = "site-monitoring-421401"
 BQ_DATASET_ID = "job_data_export"
 BQ_TABLE_ID = "dashboard_vacancy_summary"
 BQ_DAILY_TOTALS_TABLE_ID = "dashboard_daily_totals"
+BQ_MEDIA_SUMMARY_TABLE_ID = "dashboard_media_summary"
 
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets.readonly',
@@ -86,11 +87,48 @@ def get_bigquery_client():
         st.code(f"Full error: {repr(e)}")
         st.stop()
 
+def _ensure_media_summary_table(client):
+    """Create dashboard_media_summary if it doesn't exist, then load it.
+
+    This runs once — after that the daily scheduled query keeps it fresh
+    (once create_aggregated_tables.sql is updated in BigQuery Console).
+    """
+    create_sql = f"""
+    CREATE TABLE IF NOT EXISTS `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_MEDIA_SUMMARY_TABLE_ID}`
+    AS
+    SELECT
+      entity_id_str,
+      importer_ID,
+      ANY_VALUE(importer_name) as importer_name,
+      source,
+      medium,
+      campaign,
+      COUNTIF(event_name = 'job_visit') as clicks,
+      COUNTIF(event_name = 'job_apply_start') as applies
+    FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.job_performance_enriched`
+    WHERE event_name IN ('job_visit', 'job_apply_start')
+    GROUP BY entity_id_str, importer_ID, source, medium, campaign
+    """
+    try:
+        job = client.query(create_sql)
+        job.result()
+
+        read_sql = f"""
+        SELECT entity_id_str, importer_ID, importer_name,
+               source, medium, campaign, clicks, applies
+        FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_MEDIA_SUMMARY_TABLE_ID}`
+        """
+        df = client.query(read_sql).to_dataframe(create_bqstorage_client=False)
+        return df
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=14400)  # Cache for 4 hours (data refreshes daily)
 def load_all_data(days_back=30, sample_size=None):
-    """Load vacancy summary and daily totals in a single BigQuery call.
+    """Load vacancy summary, daily totals, and media summary.
 
-    Returns both DataFrames from one round trip to minimise latency.
+    Returns three DataFrames. Media query is optional — returns None if unavailable.
 
     Args:
         days_back: Number of days to look back
@@ -141,18 +179,45 @@ def load_all_data(days_back=30, sample_size=None):
         ORDER BY event_date
         """
 
-        # Submit both queries concurrently
+        media_query = f"""
+        SELECT
+            entity_id_str,
+            importer_ID,
+            importer_name,
+            source,
+            medium,
+            campaign,
+            clicks,
+            applies
+        FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_MEDIA_SUMMARY_TABLE_ID}`
+        """
+
+        # Submit all three queries concurrently
         vacancy_job = client.query(vacancy_query)
         daily_job = client.query(daily_query)
+        media_job = None
+        try:
+            media_job = client.query(media_query)
+        except Exception:
+            pass
 
-        # Wait for both to complete
+        # Wait for vacancy + daily to complete
         vacancy_job.result()
         daily_job.result()
 
         vacancy_df = vacancy_job.to_dataframe(create_bqstorage_client=False)
         daily_df = daily_job.to_dataframe(create_bqstorage_client=False)
 
-        return vacancy_df, daily_df
+        # Try to load media data; auto-create the table if it doesn't exist
+        media_df = None
+        if media_job is not None:
+            try:
+                media_job.result()
+                media_df = media_job.to_dataframe(create_bqstorage_client=False)
+            except Exception:
+                media_df = _ensure_media_summary_table(client)
+
+        return vacancy_df, daily_df, media_df
     except Exception as e:
         st.error(f"❌ Error loading data: {str(e)}")
         st.markdown("""
@@ -1913,6 +1978,587 @@ def create_launch_timing_tab(launch_df):
 
 
 # ============================================================================
+# CLIENT REPORT TAB
+# ============================================================================
+
+def create_client_report_tab(df, media_df=None):
+    """Create the Client Report tab — replicates the branded PDF advertising report."""
+    st.header("Client Advertising Report")
+
+    # --- Controls ---
+    col_client, col_dates = st.columns(2)
+    with col_client:
+        importers = sorted(df['importer_name'].dropna().unique())
+        selected_client = st.selectbox("Select Client / Importer", importers, key='report_client')
+    with col_dates:
+        min_date = df['first_event_date'].dropna().min()
+        max_date = df['last_event_date'].dropna().max()
+        if pd.notna(min_date) and pd.notna(max_date):
+            min_d = min_date.date() if hasattr(min_date, 'date') else min_date
+            max_d = max_date.date() if hasattr(max_date, 'date') else max_date
+        else:
+            min_d = datetime.now().date() - timedelta(days=365)
+            max_d = datetime.now().date()
+        report_dates = st.date_input("Report Period", [min_d, max_d], key='report_dates')
+
+    with st.expander("Cost Data (for ROI section)", expanded=False):
+        cost_col1, cost_col2 = st.columns(2)
+        with cost_col1:
+            annual_spend = st.number_input("Annual Spend (GBP)", value=0.0, step=100.0, format="%.2f", key='report_spend')
+        with cost_col2:
+            rate_card_price = st.number_input("Rate Card Price per Job (GBP)", value=600.0, step=10.0, format="%.2f", key='report_rate_card')
+
+    generate_clicked = st.button("Generate Report", type="primary", key='report_generate')
+
+    if not generate_clicked and 'report_generated' not in st.session_state:
+        st.info("Select a client and click **Generate Report** to build the advertising report.")
+        return
+
+    st.session_state['report_generated'] = True
+
+    # --- Data preparation ---
+    if len(report_dates) < 2:
+        st.warning("Please select a start and end date.")
+        return
+
+    report_start, report_end = report_dates[0], report_dates[1]
+
+    # Client data
+    client_df = df[df['importer_name'] == selected_client].copy()
+    client_df = client_df[
+        (client_df['last_event_date'].dt.date >= report_start) &
+        (client_df['first_event_date'].dt.date <= report_end)
+    ]
+
+    if len(client_df) == 0:
+        st.warning(f"No vacancies found for **{selected_client}** in the selected date range.")
+        return
+
+    # Benchmark = ALL clients in same date range
+    benchmark_df = df[
+        (df['last_event_date'].dt.date >= report_start) &
+        (df['first_event_date'].dt.date <= report_end)
+    ].copy()
+
+    # Media data for client
+    client_media = None
+    if media_df is not None and len(media_df) > 0:
+        if 'importer_name' in media_df.columns:
+            client_media = media_df[media_df['importer_name'] == selected_client].copy()
+        elif 'importer_ID' in media_df.columns and 'importer_ID' in client_df.columns:
+            client_ids = client_df['importer_ID'].unique()
+            client_media = media_df[media_df['importer_ID'].isin(client_ids)].copy()
+
+    # Store all figures for PDF export
+    report_figures = {}
+
+    st.markdown("---")
+
+    # ===================================================================
+    # SECTION 1: BENCHMARKING SCATTER
+    # ===================================================================
+    st.subheader("Benchmarking Jobs")
+
+    # Calculate per-occupation benchmark averages (from ALL clients)
+    occ_benchmarks = benchmark_df.groupby('occupation').agg(
+        avg_clicks=('clicks', 'mean'),
+        avg_applies=('applies', 'mean'),
+        vacancy_count=('clicks', 'count')
+    ).reset_index()
+
+    # Only use occupations with enough data for reliable benchmarks
+    MIN_BENCHMARK_VACANCIES = 5
+    reliable_occs = occ_benchmarks[occ_benchmarks['vacancy_count'] >= MIN_BENCHMARK_VACANCIES]
+
+    # Calculate % difference from benchmark for each client vacancy
+    scatter_rows = []
+    for _, row in client_df.iterrows():
+        occ = row.get('occupation', 'Unknown')
+        occ_bench = reliable_occs[reliable_occs['occupation'] == occ]
+
+        if len(occ_bench) > 0:
+            bench_clicks = occ_bench.iloc[0]['avg_clicks']
+            bench_applies = occ_bench.iloc[0]['avg_applies']
+
+            views_diff = ((row['clicks'] - bench_clicks) / bench_clicks * 100) if bench_clicks > 0 else 0
+            applies_diff = ((row['applies'] - bench_applies) / bench_applies * 100) if bench_applies > 0 else 0
+
+            if row['applies'] == 0 and bench_applies > 0:
+                category = 'Zero Applies'
+            else:
+                category = 'Benchmarkable'
+        else:
+            views_diff = 0
+            applies_diff = 0
+            category = 'Low Sample (No Benchmark)'
+
+        scatter_rows.append({
+            'title': row.get('title', 'Unknown'),
+            'occupation': occ,
+            'clicks': row['clicks'],
+            'applies': row['applies'],
+            'views_diff_pct': views_diff,
+            'applies_diff_pct': applies_diff,
+            'category': category
+        })
+
+    scatter_df = pd.DataFrame(scatter_rows)
+
+    chart_col, commentary_col = st.columns([2, 1])
+
+    with chart_col:
+        if len(scatter_df) > 0:
+            fig_scatter = px.scatter(
+                scatter_df,
+                x='applies_diff_pct',
+                y='views_diff_pct',
+                color='category',
+                hover_data=['title', 'occupation', 'clicks', 'applies'],
+                color_discrete_map={
+                    'Benchmarkable': '#F39C12',
+                    'Zero Applies': '#E74C3C',
+                    'Low Sample (No Benchmark)': '#95A5A6'
+                },
+                labels={
+                    'applies_diff_pct': 'Applies Difference from Benchmark (%)',
+                    'views_diff_pct': 'Views Difference from Benchmark (%)'
+                }
+            )
+            fig_scatter.add_hline(y=0, line_dash="dash", line_color="grey", opacity=0.5)
+            fig_scatter.add_vline(x=0, line_dash="dash", line_color="grey", opacity=0.5)
+            fig_scatter.update_layout(height=500, showlegend=True, legend=dict(orientation='h', y=-0.15))
+            st.plotly_chart(fig_scatter, use_container_width=True)
+            report_figures['scatter'] = fig_scatter
+
+    with commentary_col:
+        st.markdown("#### Commentary")
+        benchmarkable_count = len(scatter_df[scatter_df['category'] == 'Benchmarkable'])
+        zero_applies_count = len(scatter_df[scatter_df['category'] == 'Zero Applies'])
+        no_bench_count = len(scatter_df[scatter_df['category'] == 'Low Sample (No Benchmark)'])
+
+        st.metric("Benchmarkable Jobs", benchmarkable_count)
+        st.metric("Zero Apply Jobs", zero_applies_count)
+        st.metric("No Benchmark Available", no_bench_count)
+
+        st.markdown("""
+        Jobs around the middle/zero are meeting expectations.
+        Negative figures mean below benchmark; positive means exceeding.
+
+        **Top-right quadrant** = strong views AND applies.
+        """)
+
+    st.markdown("---")
+
+    # ===================================================================
+    # SECTION 2: BENCHMARKING SUMMARY
+    # ===================================================================
+    st.subheader("Benchmarking Summary")
+
+    benchmark_avg_clicks = benchmark_df['clicks'].mean() if len(benchmark_df) > 0 else 0
+    benchmark_avg_applies = benchmark_df['applies'].mean() if len(benchmark_df) > 0 else 0
+    client_avg_clicks = client_df['clicks'].mean() if len(client_df) > 0 else 0
+    client_avg_applies = client_df['applies'].mean() if len(client_df) > 0 else 0
+
+    kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+    with kpi_col1:
+        st.metric("Benchmark Avg. Views", f"{benchmark_avg_clicks:,.0f}")
+    with kpi_col2:
+        st.metric("Your Jobs - Avg. Views", f"{client_avg_clicks:,.0f}")
+    with kpi_col3:
+        st.metric("Benchmark Avg. Applies", f"{benchmark_avg_applies:,.1f}")
+    with kpi_col4:
+        st.metric("Your Jobs - Avg. Applies", f"{client_avg_applies:,.1f}")
+
+    # Bar charts: Views vs Benchmark %, Applies vs Benchmark %
+    bench_chart_col1, bench_chart_col2 = st.columns(2)
+
+    with bench_chart_col1:
+        views_pct = (client_avg_clicks / benchmark_avg_clicks * 100) if benchmark_avg_clicks > 0 else 0
+        fig_views = go.Figure()
+        fig_views.add_trace(go.Bar(
+            x=[selected_client], y=[views_pct],
+            marker_color='#D4AC0D' if views_pct < 100 else '#27AE60',
+            text=[f"{views_pct:.0f}%"], textposition='outside'
+        ))
+        fig_views.add_hline(y=100, line_dash="dash", line_color="black",
+                            annotation_text="Benchmark", annotation_position="top right")
+        fig_views.update_layout(title="Views vs Benchmark", yaxis_title="% of Benchmark",
+                                height=350, showlegend=False, yaxis_range=[0, max(views_pct * 1.2, 120)])
+        st.plotly_chart(fig_views, use_container_width=True)
+        report_figures['views_benchmark'] = fig_views
+
+    with bench_chart_col2:
+        applies_pct = (client_avg_applies / benchmark_avg_applies * 100) if benchmark_avg_applies > 0 else 0
+        fig_applies = go.Figure()
+        fig_applies.add_trace(go.Bar(
+            x=[selected_client], y=[applies_pct],
+            marker_color='#27AE60' if applies_pct >= 100 else '#D4AC0D',
+            text=[f"{applies_pct:.0f}%"], textposition='outside'
+        ))
+        fig_applies.add_hline(y=100, line_dash="dash", line_color="black",
+                              annotation_text="Benchmark", annotation_position="top right")
+        fig_applies.update_layout(title="Applies vs Benchmark", yaxis_title="% of Benchmark",
+                                  height=350, showlegend=False, yaxis_range=[0, max(applies_pct * 1.2, 120)])
+        st.plotly_chart(fig_applies, use_container_width=True)
+        report_figures['applies_benchmark'] = fig_applies
+
+    st.markdown("---")
+
+    # ===================================================================
+    # SECTION 3: JOB POSTINGS BY TYPE
+    # ===================================================================
+    st.subheader("Job Postings by Type")
+
+    by_type = client_df.groupby('occupation').agg(
+        jobs_posted=('clicks', 'count'),
+        apply_clicks=('applies', 'sum')
+    ).reset_index().sort_values('jobs_posted', ascending=True)
+
+    by_type = by_type[by_type['jobs_posted'] >= 1]
+
+    chart_col3, commentary_col3 = st.columns([2, 1])
+
+    with chart_col3:
+        fig_postings = go.Figure()
+        fig_postings.add_trace(go.Bar(
+            y=by_type['occupation'], x=by_type['jobs_posted'],
+            name='Jobs Posted', orientation='h',
+            marker_color='#3498DB',
+            text=by_type['jobs_posted'], textposition='outside'
+        ))
+        fig_postings.add_trace(go.Bar(
+            y=by_type['occupation'], x=by_type['apply_clicks'],
+            name='Apply Clicks', orientation='h',
+            marker_color='#E74C3C',
+            text=by_type['apply_clicks'].astype(int), textposition='outside'
+        ))
+        fig_postings.update_layout(
+            barmode='group', height=max(400, len(by_type) * 40),
+            legend=dict(orientation='h', y=-0.1),
+            xaxis_title="Count", yaxis_title=""
+        )
+        st.plotly_chart(fig_postings, use_container_width=True)
+        report_figures['postings'] = fig_postings
+
+    with commentary_col3:
+        st.markdown("#### Commentary")
+        total_jobs = len(client_df)
+        total_applies_val = int(client_df['applies'].sum())
+        st.markdown(f"**{total_jobs}** jobs posted in the report period.")
+        st.markdown(f"**{total_applies_val:,}** total apply clicks.")
+        if len(by_type) > 0:
+            top_occ = by_type.iloc[-1]
+            st.markdown(f"Top category: **{top_occ['occupation']}** with {int(top_occ['jobs_posted'])} jobs and {int(top_occ['apply_clicks'])} apply clicks.")
+
+    st.markdown("---")
+
+    # ===================================================================
+    # SECTION 4: ADVERTISING ROI
+    # ===================================================================
+    st.subheader("Advertising ROI")
+
+    num_jobs = len(client_df)
+    total_clicks = int(client_df['clicks'].sum())
+    total_applies_val = int(client_df['applies'].sum())
+
+    if annual_spend > 0:
+        cost_per_job = annual_spend / num_jobs if num_jobs > 0 else 0
+        cost_per_view = annual_spend / total_clicks if total_clicks > 0 else 0
+        cost_per_apply = annual_spend / total_applies_val if total_applies_val > 0 else 0
+
+        roi_kpi1, roi_kpi2, roi_kpi3, roi_kpi4 = st.columns(4)
+        with roi_kpi1:
+            st.metric("Jobs Advertised", f"{num_jobs:,}")
+        with roi_kpi2:
+            st.metric("Cost per Job", f"\u00a3{cost_per_job:,.2f}")
+        with roi_kpi3:
+            st.metric("Cost per View", f"\u00a3{cost_per_view:,.2f}")
+        with roi_kpi4:
+            st.metric("Cost per Apply", f"\u00a3{cost_per_apply:,.2f}")
+
+        roi_col1, roi_col2 = st.columns(2)
+
+        with roi_col1:
+            rate_card_total = rate_card_price * num_jobs
+            cost_saving = rate_card_total - annual_spend
+
+            fig_roi = go.Figure()
+            fig_roi.add_trace(go.Bar(
+                x=['Your Spend'], y=[annual_spend],
+                name='Your Spend', marker_color='#1ABC9C',
+                text=[f"\u00a3{annual_spend:,.0f}"], textposition='outside'
+            ))
+            fig_roi.add_trace(go.Bar(
+                x=['Rate Card Value'], y=[rate_card_total],
+                name='Rate Card Value', marker_color='#2C3E50',
+                text=[f"\u00a3{rate_card_total:,.0f}"], textposition='outside'
+            ))
+            saving_pct = ((rate_card_total - annual_spend) / rate_card_total * 100) if rate_card_total > 0 else 0
+            fig_roi.update_layout(
+                title=f"Cost vs Rate Card (Saving: {saving_pct:.0f}%)",
+                height=350, showlegend=True, yaxis_title="GBP"
+            )
+            st.plotly_chart(fig_roi, use_container_width=True)
+            report_figures['roi_cost'] = fig_roi
+
+        with roi_col2:
+            roi_by_type = client_df.groupby('occupation').agg(
+                total_applies=('applies', 'sum'),
+                job_count=('clicks', 'count')
+            ).reset_index()
+            roi_by_type = roi_by_type[roi_by_type['total_applies'] > 0]
+            roi_by_type['cost_allocated'] = annual_spend * (roi_by_type['job_count'] / roi_by_type['job_count'].sum())
+            roi_by_type['cost_per_apply'] = roi_by_type['cost_allocated'] / roi_by_type['total_applies']
+            roi_by_type = roi_by_type.sort_values('cost_per_apply', ascending=True)
+
+            fig_cpa = go.Figure()
+            fig_cpa.add_trace(go.Bar(
+                y=roi_by_type['occupation'], x=roi_by_type['cost_per_apply'],
+                orientation='h', marker_color='#E67E22',
+                text=roi_by_type['cost_per_apply'].apply(lambda x: f"\u00a3{x:,.2f}"),
+                textposition='outside'
+            ))
+            fig_cpa.update_layout(
+                title="Cost per Apply by Job Type",
+                height=max(300, len(roi_by_type) * 35),
+                xaxis_title="Cost per Apply (GBP)", yaxis_title=""
+            )
+            st.plotly_chart(fig_cpa, use_container_width=True)
+            report_figures['roi_cpa'] = fig_cpa
+    else:
+        st.metric("Jobs Advertised", f"{num_jobs:,}")
+        st.info("Enter your **Annual Spend** and **Rate Card Price** in the Cost Data section above to see ROI analysis.")
+
+    st.markdown("---")
+
+    # ===================================================================
+    # SECTION 5: MEDIA PERFORMANCE
+    # ===================================================================
+    st.subheader("Media Performance")
+
+    if client_media is not None and len(client_media) > 0:
+        media_stats = client_media.groupby('source').agg(
+            total_clicks=('clicks', 'sum'),
+            total_applies=('applies', 'sum'),
+            vacancy_count=('entity_id_str', 'nunique')
+        ).reset_index()
+        media_stats['avg_views'] = media_stats['total_clicks'] / media_stats['vacancy_count']
+        media_stats['avg_applies'] = media_stats['total_applies'] / media_stats['vacancy_count']
+        media_stats['conversion_rate'] = (media_stats['total_applies'] / media_stats['total_clicks'].replace(0, np.nan) * 100).fillna(0)
+        media_stats = media_stats.sort_values('total_clicks', ascending=False)
+
+        media_chart_col, media_table_col = st.columns([1, 1])
+
+        with media_table_col:
+            display_media = media_stats[['source', 'vacancy_count', 'avg_views', 'avg_applies', 'conversion_rate']].copy()
+            display_media.columns = ['Source', 'Vacancies', 'Avg. Views', 'Avg. Applies', 'Conversion %']
+            display_media['Avg. Views'] = display_media['Avg. Views'].round(1)
+            display_media['Avg. Applies'] = display_media['Avg. Applies'].round(1)
+            display_media['Conversion %'] = display_media['Conversion %'].round(1)
+            st.dataframe(display_media, use_container_width=True, hide_index=True)
+
+        with media_chart_col:
+            fig_media = go.Figure()
+            fig_media.add_trace(go.Bar(
+                y=media_stats['source'], x=media_stats['avg_views'],
+                name='Avg. Views', orientation='h', marker_color='#E74C3C'
+            ))
+            fig_media.add_trace(go.Bar(
+                y=media_stats['source'], x=media_stats['avg_applies'],
+                name='Avg. Applies', orientation='h', marker_color='#3498DB'
+            ))
+            fig_media.update_layout(
+                barmode='group', height=max(350, len(media_stats) * 40),
+                title="Media Performance by Source",
+                xaxis_title="Average per Vacancy", yaxis_title="",
+                legend=dict(orientation='h', y=-0.15)
+            )
+            st.plotly_chart(fig_media, use_container_width=True)
+            report_figures['media'] = fig_media
+    else:
+        st.info("Media source data not available. Run the `dashboard_media_summary` BigQuery table creation to enable this section.")
+
+    st.markdown("---")
+
+    # ===================================================================
+    # PDF EXPORT
+    # ===================================================================
+    st.subheader("Export Report")
+
+    report_metrics = {
+        'client_name': selected_client,
+        'report_start': str(report_start),
+        'report_end': str(report_end),
+        'num_jobs': num_jobs,
+        'total_clicks': total_clicks,
+        'total_applies': total_applies_val,
+        'benchmark_avg_clicks': benchmark_avg_clicks,
+        'benchmark_avg_applies': benchmark_avg_applies,
+        'client_avg_clicks': client_avg_clicks,
+        'client_avg_applies': client_avg_applies,
+        'annual_spend': annual_spend,
+        'rate_card_price': rate_card_price,
+    }
+
+    try:
+        pdf_bytes = generate_client_report_pdf(report_metrics, report_figures)
+        st.download_button(
+            "Download PDF Report",
+            data=pdf_bytes,
+            file_name=f"advertising_report_{selected_client.replace(' ', '_')}_{report_start}_{report_end}.pdf",
+            mime="application/pdf",
+            type="primary"
+        )
+    except Exception as e:
+        st.warning(f"PDF generation requires `fpdf2` and `kaleido`. Install with: `pip install fpdf2 kaleido`")
+        st.caption(f"Error: {e}")
+
+
+def generate_client_report_pdf(metrics, figures):
+    """Generate a branded PDF report from the client report data."""
+    from fpdf import FPDF
+    import io
+
+    class ReportPDF(FPDF):
+        def header(self):
+            self.set_fill_color(44, 62, 80)
+            self.rect(0, 0, 210, 20, 'F')
+            self.set_text_color(255, 255, 255)
+            self.set_font('Helvetica', 'B', 10)
+            self.set_xy(10, 5)
+            self.cell(0, 10, 'ADVERTISING REPORT', align='L')
+            self.set_xy(10, 5)
+            self.cell(0, 10, metrics['client_name'], align='R')
+            self.set_text_color(0, 0, 0)
+            self.ln(20)
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font('Helvetica', 'I', 8)
+            self.set_text_color(128, 128, 128)
+            self.cell(0, 10, f'Page {self.page_no()}/{{nb}}  |  {metrics["report_start"]} to {metrics["report_end"]}', align='C')
+
+        def section_title(self, title):
+            self.set_font('Helvetica', 'B', 16)
+            self.set_text_color(44, 62, 80)
+            self.cell(0, 12, title, new_x="LMARGIN", new_y="NEXT")
+            self.ln(2)
+
+        def kpi_row(self, kpis):
+            """Render a row of KPI cards. kpis = list of (label, value) tuples."""
+            col_width = (190 - 10 * (len(kpis) - 1)) / len(kpis)
+            start_x = self.get_x()
+            y = self.get_y()
+            for i, (label, value) in enumerate(kpis):
+                x = start_x + i * (col_width + 10)
+                self.set_fill_color(245, 245, 245)
+                self.rect(x, y, col_width, 18, 'F')
+                self.set_xy(x + 2, y + 1)
+                self.set_font('Helvetica', '', 7)
+                self.set_text_color(100, 100, 100)
+                self.cell(col_width - 4, 5, label, align='L')
+                self.set_xy(x + 2, y + 7)
+                self.set_font('Helvetica', 'B', 14)
+                self.set_text_color(44, 62, 80)
+                self.cell(col_width - 4, 10, str(value), align='L')
+            self.set_y(y + 22)
+
+    pdf = ReportPDF()
+    pdf.alias_nb_pages()
+
+    # --- PAGE 1: Title page ---
+    pdf.add_page()
+    pdf.set_fill_color(44, 62, 80)
+    pdf.rect(0, 0, 210, 297, 'F')
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font('Helvetica', 'B', 36)
+    pdf.set_xy(20, 80)
+    pdf.cell(0, 20, 'ADVERTISING')
+    pdf.set_xy(20, 105)
+    pdf.set_font('Helvetica', 'B', 36)
+    pdf.set_text_color(231, 76, 60)
+    pdf.cell(0, 20, 'REPORT')
+    pdf.set_text_color(189, 195, 199)
+    pdf.set_font('Helvetica', '', 14)
+    pdf.set_xy(20, 140)
+    pdf.cell(0, 10, f"{metrics['report_start']}  to  {metrics['report_end']}")
+    pdf.set_xy(20, 155)
+    pdf.set_font('Helvetica', 'B', 16)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(0, 10, metrics['client_name'].upper())
+    pdf.set_text_color(0, 0, 0)
+
+    def add_chart(fig, width=170, height=100):
+        try:
+            img_bytes = fig.to_image(format="png", width=800, height=500)
+            img_stream = io.BytesIO(img_bytes)
+            pdf.image(img_stream, x=pdf.get_x(), y=pdf.get_y(), w=width)
+            pdf.set_y(pdf.get_y() + height + 5)
+        except Exception:
+            pdf.set_font('Helvetica', 'I', 10)
+            pdf.cell(0, 10, '[Chart image unavailable - install kaleido]', new_x="LMARGIN", new_y="NEXT")
+
+    # --- PAGE 2: Benchmarking Scatter ---
+    pdf.add_page()
+    pdf.section_title('BENCHMARKING JOBS')
+    if 'scatter' in figures:
+        add_chart(figures['scatter'])
+
+    # --- PAGE 3: Benchmarking Summary ---
+    pdf.add_page()
+    pdf.section_title('BENCHMARKING SUMMARY')
+    pdf.kpi_row([
+        ('Benchmark Avg. Views', f"{metrics['benchmark_avg_clicks']:,.0f}"),
+        ('Your Avg. Views', f"{metrics['client_avg_clicks']:,.0f}"),
+        ('Benchmark Avg. Applies', f"{metrics['benchmark_avg_applies']:,.1f}"),
+        ('Your Avg. Applies', f"{metrics['client_avg_applies']:,.1f}"),
+    ])
+    if 'views_benchmark' in figures:
+        add_chart(figures['views_benchmark'], width=85, height=55)
+    if 'applies_benchmark' in figures:
+        pdf.set_y(pdf.get_y() - 60)
+        pdf.set_x(105)
+        try:
+            img_bytes = figures['applies_benchmark'].to_image(format="png", width=800, height=500)
+            img_stream = io.BytesIO(img_bytes)
+            pdf.image(img_stream, x=105, y=pdf.get_y(), w=85)
+            pdf.set_y(pdf.get_y() + 60)
+        except Exception:
+            pass
+
+    # --- PAGE 4: Job Postings ---
+    pdf.add_page()
+    pdf.section_title('JOB POSTINGS')
+    if 'postings' in figures:
+        add_chart(figures['postings'], height=120)
+
+    # --- PAGE 5: ROI ---
+    if metrics['annual_spend'] > 0:
+        pdf.add_page()
+        pdf.section_title('ADVERTISING ROI')
+        num_jobs = metrics['num_jobs']
+        spend = metrics['annual_spend']
+        pdf.kpi_row([
+            ('Jobs Advertised', f"{num_jobs:,}"),
+            ('Cost per Job', f"\u00a3{spend / num_jobs:,.2f}" if num_jobs > 0 else 'N/A'),
+            ('Cost per View', f"\u00a3{spend / metrics['total_clicks']:,.2f}" if metrics['total_clicks'] > 0 else 'N/A'),
+            ('Cost per Apply', f"\u00a3{spend / metrics['total_applies']:,.2f}" if metrics['total_applies'] > 0 else 'N/A'),
+        ])
+        if 'roi_cost' in figures:
+            add_chart(figures['roi_cost'], width=85, height=55)
+        if 'roi_cpa' in figures:
+            add_chart(figures['roi_cpa'], height=70)
+
+    # --- PAGE 6: Media Performance ---
+    if 'media' in figures:
+        pdf.add_page()
+        pdf.section_title('MEDIA PERFORMANCE')
+        add_chart(figures['media'], height=110)
+
+    return bytes(pdf.output())
+
+
+# ============================================================================
 # MAIN APPLICATION
 # ============================================================================
 
@@ -1954,7 +2600,7 @@ def main():
     status_text = st.empty()
 
     status_text.text("Loading data from BigQuery... 0%")
-    df_raw, daily_totals = load_all_data(days_back=days_back, sample_size=sample_size)
+    df_raw, daily_totals, media_df = load_all_data(days_back=days_back, sample_size=sample_size)
     progress_bar.progress(30)
 
     status_text.text("Loading launch timing data... 30%")
@@ -2049,13 +2695,14 @@ def main():
                 st.write(f"'{name}': {count} vacancies")
 
     # Tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📊 Overview",
         "🔍 Deep Dive",
         "📋 Vacancy Performance",
         "⚖️ Comparison",
         "💼 Sales Intelligence",
-        "📅 Launch Timing"
+        "📅 Launch Timing",
+        "📄 Client Report"
     ])
 
     with tab1:
@@ -2075,6 +2722,9 @@ def main():
 
     with tab6:
         create_launch_timing_tab(launch_timing_df)
+
+    with tab7:
+        create_client_report_tab(df, media_df=media_df)
 
 if __name__ == "__main__":
     main()

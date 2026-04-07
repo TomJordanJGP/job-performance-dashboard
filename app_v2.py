@@ -1486,7 +1486,7 @@ def create_sales_intelligence_tab(df):
                                     styles.append('background-color: #ffc7ce')
                                 else:
                                     styles.append('')
-                            return styles
+                        return styles
                     return display_df.style.apply(highlight_row, axis=1)
 
                 with tab_clicks:

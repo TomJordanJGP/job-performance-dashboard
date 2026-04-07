@@ -1523,12 +1523,12 @@ def create_sales_intelligence_tab(df):
                         # Add baseline comparison
                         no_upgrade_clicks = single_df[single_df['upgrade_category'] == 'No Upgrade']['clicks'].mean()
                         no_upgrade_applies = single_df[single_df['upgrade_category'] == 'No Upgrade']['applies'].mean()
-                        if no_upgrade_clicks and no_upgrade_clicks > 0:
+                        if pd.notna(no_upgrade_clicks) and no_upgrade_clicks > 0:
                             combo_agg['Clicks vs No Upgrade'] = combo_agg['Avg Clicks'].apply(
-                                lambda x: f'{((x / no_upgrade_clicks) - 1) * 100:+.0f}%')
-                        if no_upgrade_applies and no_upgrade_applies > 0:
+                                lambda x: f'{((x / no_upgrade_clicks) - 1) * 100:+.0f}%' if pd.notna(x) else '—')
+                        if pd.notna(no_upgrade_applies) and no_upgrade_applies > 0:
                             combo_agg['Applies vs No Upgrade'] = combo_agg['Avg Applies'].apply(
-                                lambda x: f'{((x / no_upgrade_applies) - 1) * 100:+.0f}%')
+                                lambda x: f'{((x / no_upgrade_applies) - 1) * 100:+.0f}%' if pd.notna(x) else '—')
 
                         st.dataframe(
                             combo_agg.style.format({'Avg Clicks': '{:.1f}', 'Avg Applies': '{:.1f}'}),

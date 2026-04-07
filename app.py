@@ -303,8 +303,7 @@ def create_filter_panel(df, key_prefix, default_months=6):
             else:
                 min_date = min_date.date() if hasattr(min_date, 'date') else min_date
                 max_date = max_date.date() if hasattr(max_date, 'date') else max_date
-            default_start = (datetime.now() - timedelta(days=default_months*30)).date()
-            default_start = max(default_start, min_date)
+            default_start = min_date
 
             filters['date_range'] = st.date_input(
                 "Date Range",
@@ -1311,7 +1310,7 @@ def main():
         "Vacancies Active In Last (Days)",
         min_value=7,
         max_value=365,
-        value=30,
+        value=365,
         step=7,
         help="Show vacancies that received at least one view or click within this many days"
     )

@@ -11,6 +11,10 @@
 -- Used for: metric cards, importer/region/occupation charts, vacancy table, benchmarks
 CREATE OR REPLACE TABLE `site-monitoring-421401.job_data_export.dashboard_vacancy_summary`
 AS
+WITH enriched AS (
+  SELECT * FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
+  WHERE event_name IN ('job_visit', 'job_apply_start')
+)
 SELECT
   entity_id_str,
 
@@ -46,8 +50,7 @@ SELECT
   ANY_VALUE(salary_exact) as salary_exact,
   ANY_VALUE(salary_unit) as salary_unit
 
-FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
-WHERE event_name IN ('job_visit', 'job_apply_start')
+FROM enriched
 GROUP BY entity_id_str;
 
 
@@ -57,13 +60,16 @@ GROUP BY entity_id_str;
 CREATE OR REPLACE TABLE `site-monitoring-421401.job_data_export.dashboard_daily_totals`
 PARTITION BY event_date
 AS
+WITH enriched AS (
+  SELECT * FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
+  WHERE event_name IN ('job_visit', 'job_apply_start')
+)
 SELECT
   event_date_parsed as event_date,
   COUNTIF(event_name = 'job_visit') as clicks,
   COUNTIF(event_name = 'job_apply_start') as applies,
   COUNT(DISTINCT entity_id_str) as active_vacancies
-FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
-WHERE event_name IN ('job_visit', 'job_apply_start')
+FROM enriched
 GROUP BY event_date_parsed;
 
 
@@ -72,6 +78,10 @@ GROUP BY event_date_parsed;
 -- Shows which traffic sources (organic, PPC, email, etc.) drive views and applies
 CREATE OR REPLACE TABLE `site-monitoring-421401.job_data_export.dashboard_media_summary`
 AS
+WITH enriched AS (
+  SELECT * FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
+  WHERE event_name IN ('job_visit', 'job_apply_start')
+)
 SELECT
   entity_id_str,
   importer_ID,
@@ -81,6 +91,5 @@ SELECT
   campaign,
   COUNTIF(event_name = 'job_visit') as clicks,
   COUNTIF(event_name = 'job_apply_start') as applies
-FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
-WHERE event_name IN ('job_visit', 'job_apply_start')
+FROM enriched
 GROUP BY entity_id_str, importer_ID, source, medium, campaign;

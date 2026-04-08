@@ -361,6 +361,32 @@ def sync_to_bigquery(client, all_records, dry_run=False):
     job.result()
     print(f"OK ({job.num_dml_affected_rows} rows affected)")
 
+    # Log reconciliation stats per feed source
+    try:
+        for feed_name in feed_df['feed_name'].unique():
+            feed_count = len(feed_df[feed_df['feed_name'] == feed_name])
+            recon_sql = f"""
+            INSERT INTO `{BQ_PROJECT}.{BQ_DATASET}.id_reconciliation_log`
+              (run_date, run_timestamp, source, total_records, matched_external_id, matched_entity_id, unmatched, match_rate)
+            SELECT
+              CURRENT_DATE() as run_date,
+              CURRENT_TIMESTAMP() as run_timestamp,
+              'feed_{feed_name.lower().replace(' ', '_')}' as source,
+              {feed_count} as total_records,
+              COUNTIF(m.external_id IS NOT NULL) as matched_external_id,
+              COUNTIF(m.entity_id IS NOT NULL AND m.entity_id != '') as matched_entity_id,
+              COUNTIF(m.external_id IS NULL) as unmatched,
+              SAFE_DIVIDE(COUNTIF(m.external_id IS NOT NULL), {feed_count}) as match_rate
+            FROM `{BQ_PROJECT}.{BQ_DATASET}.feed_jobs_latest` f
+            LEFT JOIN `{BQ_PROJECT}.{BQ_DATASET}.job_metadata` m
+              ON f.feed_id = m.external_id
+            WHERE f.feed_name = '{feed_name}'
+            """
+            client.query(recon_sql).result()
+        print(f"  Logged reconciliation stats for {len(feed_df['feed_name'].unique())} feed sources")
+    except Exception as e:
+        print(f"  WARNING: Failed to log reconciliation stats: {e}")
+
     return feed_df
 
 

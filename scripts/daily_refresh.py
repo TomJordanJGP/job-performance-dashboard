@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Daily refresh script for the Job Performance Dashboard.
 
-Runs four steps in sequence:
+Runs seven steps in sequence:
 1. Incremental sync: Append new events from the source table
 2. Sync feeds: Update job_metadata from XML feeds
-3. Rebuild enriched table: Re-join with metadata and location lookup
+2.1. Refresh vacancy_locations: Rebuild exploded location table from job_metadata
+2.5. Enrich from HQ: Backfill HQ region/county on job_metadata
+3. Rebuild enriched table: Re-join with metadata, locations, and region canonical
 4. Rebuild aggregated tables: Pre-compute vacancy summary and daily totals
+5. Refresh reconciliation: Rebuild missing_external_ids table
 
 Can be run manually, via cron, or as a GitHub Action.
 
@@ -93,9 +96,11 @@ def verify_tables(client):
         ('job_metadata', 'MAX(last_updated)'),
         ('vacancy_locations', 'COUNT(DISTINCT entity_id)'),
         ('feed_jobs_latest', 'MAX(last_seen)'),
+        ('region_canonical', 'COUNT(*)'),
         ('job_performance_enriched', 'MAX(event_date_parsed)'),
         ('dashboard_vacancy_summary', 'MAX(last_event_date)'),
         ('dashboard_daily_totals', 'MAX(event_date)'),
+        ('missing_external_ids', 'COUNT(*)'),
     ]
 
     for table, max_date_expr in tables:
@@ -147,6 +152,12 @@ def main():
                     print(f"  STDERR: {line}")
             print("  Continuing with existing feed data...")
 
+    # Step 2.1: Refresh vacancy_locations from job_metadata.locations
+    ok = run_sql_file(client, 'refresh_vacancy_locations.sql',
+                      'Rebuild vacancy_locations from job_metadata', args.dry_run)
+    if not ok:
+        print("  WARNING: vacancy_locations refresh failed. Continuing with existing data...")
+
     # Step 2.5: Enrich from HQ addresses
     ok = run_sql_file(client, 'enrich_from_hq.sql',
                       'Enrich job_metadata with HQ region/county', args.dry_run)
@@ -166,6 +177,12 @@ def main():
     if not ok:
         print("FAILED at step 4. Aborting.")
         sys.exit(1)
+
+    # Step 5: Refresh reconciliation tables (missing_external_ids)
+    ok = run_sql_file(client, 'create_reconciliation_tables.sql',
+                      'Refresh reconciliation tables', args.dry_run)
+    if not ok:
+        print("  WARNING: Reconciliation refresh failed. Non-critical, continuing...")
 
     # Verify
     if not args.dry_run:

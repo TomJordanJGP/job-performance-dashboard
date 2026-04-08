@@ -17,7 +17,7 @@ inject_css()
 
 # Import modules
 from theme.components import sidebar_logo, main_logo
-from data.loader import load_all_data, load_importer_mapping
+from data.loader import load_all_data
 from data.processing import (
     prepare_enriched_data,
     apply_importer_mapping,
@@ -42,11 +42,10 @@ def main():
     # === DATA LOADING (fixed 365 days, no data settings exposed) ===
     with st.spinner("Loading data..."):
         df_raw, daily_totals = load_all_data(days_back=365, sample_size=None)
-        importer_mapping = load_importer_mapping()
 
         df = df_raw.copy()
         df = prepare_enriched_data(df)
-        df = apply_importer_mapping(df, importer_mapping)
+        df = apply_importer_mapping(df)
         df = parse_upgrades(df)
         df = parse_dates_in_jobiqo(df)
         df = add_occupation_column(df)

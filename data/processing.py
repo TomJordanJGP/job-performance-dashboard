@@ -5,31 +5,16 @@ import numpy as np
 import pandas as pd
 
 
-def apply_importer_mapping(df, mapping):
-    """Apply importer ID to name mapping. Uses BigQuery importer_name as primary,
-    falls back to CSV mapping for any NULLs."""
-    if 'importer_name' in df.columns:
-        df = df.copy()
-        if mapping and 'importer_ID' in df.columns:
-            df['importer_id_str'] = df['importer_ID'].astype(str).str.strip()
-            mask = df['importer_name'].isna() | (df['importer_name'].astype(str).str.strip() == '')
-            df.loc[mask, 'importer_name'] = df.loc[mask, 'importer_id_str'].map(mapping)
-        df['importer_name'] = df['importer_name'].fillna('Unknown')
-        return df
-
-    if 'importer_ID' not in df.columns:
-        df['importer_name'] = 'Unknown'
-        return df
-
+def apply_importer_mapping(df, mapping=None):
+    """Ensure importer_name has no nulls. SQL is the primary source for importer names;
+    this just fills any remaining gaps with 'Unknown'."""
     df = df.copy()
-    df['importer_id_str'] = df['importer_ID'].astype(str).str.strip()
-
-    if mapping:
-        df['importer_name'] = df['importer_id_str'].map(mapping)
-        df['importer_name'] = df['importer_name'].fillna('ID: ' + df['importer_id_str'])
+    if 'importer_name' not in df.columns:
+        df['importer_name'] = 'Unknown'
     else:
-        df['importer_name'] = 'ID: ' + df['importer_id_str']
-
+        df['importer_name'] = df['importer_name'].fillna('Unknown')
+    if 'importer_ID' in df.columns:
+        df['importer_id_str'] = df['importer_ID'].astype(str).str.strip()
     return df
 
 

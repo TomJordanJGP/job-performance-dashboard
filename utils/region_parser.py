@@ -7,7 +7,7 @@ import pandas as pd
 
 # UK regions and their common identifiers
 UK_REGIONS = {
-    'London': ['london', 'greater london', 'ec1', 'ec2', 'ec3', 'ec4', 'wc1', 'wc2', 'n1', 'nw1', 'se1', 'sw1', 'e1', 'w1'],
+    'Greater London': ['london', 'greater london', 'ec1', 'ec2', 'ec3', 'ec4', 'wc1', 'wc2', 'n1', 'nw1', 'se1', 'sw1', 'e1', 'w1'],
     'South East': ['surrey', 'kent', 'sussex', 'berkshire', 'hampshire', 'oxfordshire', 'buckinghamshire', 'brighton', 'reading', 'slough',
                    'farnham', 'bicester', 'bracknell', 'upminster', 'macclesfield', 'kings hill', 'warfield', 'camberley', 'cheshunt',
                    'guildford', 'crawley', 'basingstoke', 'eastbourne', 'hastings', 'canterbury', 'maidstone', 'ashford', 'tunbridge wells'],
@@ -19,8 +19,8 @@ UK_REGIONS = {
                       'northampton', 'lincoln', 'mansfield'],
     'West Midlands': ['birmingham', 'coventry', 'wolverhampton', 'warwickshire', 'worcestershire', 'staffordshire', 'shropshire', 'herefordshire',
                       'dudley', 'walsall', 'solihull', 'west bromwich', 'stoke', 'telford', 'worcester', 'hereford', 'shrewsbury'],
-    'Yorkshire and the Humber': ['yorkshire', 'leeds', 'sheffield', 'bradford', 'hull', 'york', 'doncaster', 'wakefield',
-                                   'barnsley', 'rotherham', 'huddersfield', 'halifax', 'harrogate', 'scarborough'],
+    'Yorkshire and The Humber': ['yorkshire', 'leeds', 'sheffield', 'bradford', 'hull', 'york', 'doncaster', 'wakefield',
+                                  'barnsley', 'rotherham', 'huddersfield', 'halifax', 'harrogate', 'scarborough'],
     'North West': ['manchester', 'liverpool', 'lancashire', 'cheshire', 'merseyside', 'cumbria', 'preston', 'bolton', 'blackpool',
                    'crewe', 'widnes', 'chester', 'birkenhead', 'knutsford', 'neston', 'warrington', 'stockport', 'oldham', 'rochdale',
                    'salford', 'wigan', 'blackburn', 'burnley', 'carlisle', 'lancaster'],
@@ -34,8 +34,8 @@ UK_REGIONS = {
 # UK postcode area to region mapping
 POSTCODE_REGIONS = {
     # London
-    'E': 'London', 'EC': 'London', 'N': 'London', 'NW': 'London',
-    'SE': 'London', 'SW': 'London', 'W': 'London', 'WC': 'London',
+    'E': 'Greater London', 'EC': 'Greater London', 'N': 'Greater London', 'NW': 'Greater London',
+    'SE': 'Greater London', 'SW': 'Greater London', 'W': 'Greater London', 'WC': 'Greater London',
 
     # South East
     'BR': 'South East', 'CR': 'South East', 'DA': 'South East', 'GU': 'South East',
@@ -65,11 +65,11 @@ POSTCODE_REGIONS = {
     'WV': 'West Midlands',
 
     # Yorkshire
-    'BD': 'Yorkshire and the Humber', 'DN': 'Yorkshire and the Humber',
-    'HD': 'Yorkshire and the Humber', 'HG': 'Yorkshire and the Humber',
-    'HU': 'Yorkshire and the Humber', 'HX': 'Yorkshire and the Humber',
-    'LS': 'Yorkshire and the Humber', 'S': 'Yorkshire and the Humber',
-    'WF': 'Yorkshire and the Humber', 'YO': 'Yorkshire and the Humber',
+    'BD': 'Yorkshire and The Humber', 'DN': 'Yorkshire and The Humber',
+    'HD': 'Yorkshire and The Humber', 'HG': 'Yorkshire and The Humber',
+    'HU': 'Yorkshire and The Humber', 'HX': 'Yorkshire and The Humber',
+    'LS': 'Yorkshire and The Humber', 'S': 'Yorkshire and The Humber',
+    'WF': 'Yorkshire and The Humber', 'YO': 'Yorkshire and The Humber',
 
     # North West
     'BL': 'North West', 'CA': 'North West', 'CH': 'North West',

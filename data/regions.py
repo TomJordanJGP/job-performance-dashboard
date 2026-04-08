@@ -5,11 +5,11 @@ COUNTRY_REGIONS = {
     'England': [
         'North East',
         'North West',
-        'Yorkshire and the Humber',
+        'Yorkshire and The Humber',
         'East Midlands',
         'West Midlands',
         'East of England',
-        'London',
+        'Greater London',
         'South East',
         'South West',
     ],

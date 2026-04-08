@@ -416,8 +416,44 @@ def main():
     print(f"\nStep 5: Dedup checks")
     run_dedup_checks(client)
 
+    # Log reconciliation stats
+    print(f"\nStep 6: Log reconciliation stats")
+    try:
+        recon_sql = f"""
+        INSERT INTO `{BQ_PROJECT}.{BQ_DATASET}.id_reconciliation_log`
+          (run_date, run_timestamp, source, total_records, matched_external_id, matched_entity_id, unmatched, match_rate)
+        WITH staging AS (SELECT * FROM `{STAGING_TABLE}`),
+        ext_match AS (
+            SELECT s.entity_id FROM staging s
+            JOIN `{BQ_PROJECT}.{BQ_DATASET}.job_metadata` m ON s.external_id = m.external_id
+            WHERE s.external_id IS NOT NULL AND TRIM(s.external_id) != ''
+        ),
+        eid_match AS (
+            SELECT s.entity_id FROM staging s
+            JOIN `{BQ_PROJECT}.{BQ_DATASET}.job_metadata` m ON s.entity_id = m.entity_id
+            WHERE s.entity_id IS NOT NULL AND TRIM(s.entity_id) != ''
+              AND s.entity_id NOT IN (SELECT entity_id FROM ext_match)
+        )
+        SELECT
+            CURRENT_DATE(),
+            CURRENT_TIMESTAMP(),
+            'csv_export',
+            (SELECT COUNT(*) FROM staging),
+            (SELECT COUNT(*) FROM ext_match),
+            (SELECT COUNT(*) FROM eid_match),
+            (SELECT COUNT(*) FROM staging) - (SELECT COUNT(*) FROM ext_match) - (SELECT COUNT(*) FROM eid_match),
+            SAFE_DIVIDE(
+                (SELECT COUNT(*) FROM ext_match) + (SELECT COUNT(*) FROM eid_match),
+                (SELECT COUNT(*) FROM staging)
+            )
+        """
+        client.query(recon_sql).result()
+        print("  Logged reconciliation stats to id_reconciliation_log")
+    except Exception as e:
+        print(f"  WARNING: Failed to log reconciliation stats: {e}")
+
     # Report
-    print(f"\nStep 6: Report")
+    print(f"\nStep 7: Report")
     report_remaining(client)
 
     # Clean up

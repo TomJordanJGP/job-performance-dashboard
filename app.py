@@ -24,11 +24,13 @@ from data.processing import (
     parse_upgrades,
     parse_dates_in_jobiqo,
     add_occupation_column,
+    process_salary_columns,
 )
 from data.filters import create_sidebar_filters
 from views.dashboard import render_dashboard
 from views.performance import render_performance
 from views.compare import render_compare
+from views.salary import render_salary
 
 
 def main():
@@ -48,6 +50,7 @@ def main():
         df = parse_upgrades(df)
         df = parse_dates_in_jobiqo(df)
         df = add_occupation_column(df)
+        df = process_salary_columns(df)
 
     # Initialize session state
     for key in ['global_filters', 'comp_left_filters', 'comp_right_filters']:
@@ -75,10 +78,11 @@ def main():
     st.markdown(main_logo(), unsafe_allow_html=True)
 
     # Tabs
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "Dashboard",
         "Performance",
         "Compare",
+        "Salary Benchmarking",
     ])
 
     with tab1:
@@ -89,6 +93,9 @@ def main():
 
     with tab3:
         render_compare(df)
+
+    with tab4:
+        render_salary(df)
 
 
 if __name__ == "__main__":

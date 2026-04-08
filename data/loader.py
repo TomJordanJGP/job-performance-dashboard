@@ -74,8 +74,8 @@ def load_all_data(days_back=30, sample_size=None):
         cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
         limit_clause = f"LIMIT {sample_size}" if sample_size else ""
 
-        vacancy_query = f"""
-        SELECT
+        # Core fields always present in dashboard_vacancy_summary
+        core_fields = """
             entity_id_str,
             first_event_date,
             last_event_date,
@@ -94,7 +94,19 @@ def load_all_data(days_back=30, sample_size=None):
             end_date,
             category,
             contract_type,
-            employment_type
+            employment_type"""
+
+        # Salary fields (added after running updated create_aggregated_tables.sql)
+        salary_fields = """,
+            min_salary,
+            max_salary,
+            currency_code,
+            salary_free_text,
+            salary_exact,
+            salary_unit"""
+
+        vacancy_query = f"""
+        SELECT {core_fields}{salary_fields}
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
         WHERE last_event_date >= '{cutoff_date}'
         {limit_clause}
@@ -111,9 +123,21 @@ def load_all_data(days_back=30, sample_size=None):
         ORDER BY event_date
         """
 
-        vacancy_job = client.query(vacancy_query)
+        # Try with salary fields; fall back to core-only if table not yet updated
+        try:
+            vacancy_job = client.query(vacancy_query)
+            vacancy_job.result()
+        except Exception:
+            vacancy_query = f"""
+            SELECT {core_fields}
+            FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
+            WHERE last_event_date >= '{cutoff_date}'
+            {limit_clause}
+            """
+            vacancy_job = client.query(vacancy_query)
+            vacancy_job.result()
+
         daily_job = client.query(daily_query)
-        vacancy_job.result()
         daily_job.result()
 
         vacancy_df = vacancy_job.to_dataframe(create_bqstorage_client=False)

@@ -6,6 +6,8 @@ from google.cloud import bigquery
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+from data.processing import apply_media_categories, process_salary_columns
+from views.salary import render_salary
 
 # Page configuration
 st.set_page_config(
@@ -141,9 +143,8 @@ def load_all_data(days_back=30, sample_size=None):
 
         limit_clause = f"LIMIT {sample_size}" if sample_size else ""
 
-        # Run both queries in one script to minimise round trips
-        vacancy_query = f"""
-        SELECT
+        # Core fields always present in dashboard_vacancy_summary
+        core_fields = """
             entity_id_str,
             first_event_date,
             last_event_date,
@@ -162,7 +163,19 @@ def load_all_data(days_back=30, sample_size=None):
             end_date,
             category,
             contract_type,
-            employment_type
+            employment_type"""
+
+        # Salary fields (added after running updated create_aggregated_tables.sql)
+        salary_fields = """,
+            min_salary,
+            max_salary,
+            currency_code,
+            salary_free_text,
+            salary_exact,
+            salary_unit"""
+
+        vacancy_query = f"""
+        SELECT {core_fields}{salary_fields}
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
         WHERE last_event_date >= '{cutoff_date}'
         {limit_clause}
@@ -192,8 +205,20 @@ def load_all_data(days_back=30, sample_size=None):
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_MEDIA_SUMMARY_TABLE_ID}`
         """
 
-        # Submit all three queries concurrently
-        vacancy_job = client.query(vacancy_query)
+        # Try with salary fields; fall back to core-only if table not yet updated
+        try:
+            vacancy_job = client.query(vacancy_query)
+            vacancy_job.result()
+        except Exception:
+            vacancy_query = f"""
+            SELECT {core_fields}
+            FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
+            WHERE last_event_date >= '{cutoff_date}'
+            {limit_clause}
+            """
+            vacancy_job = client.query(vacancy_query)
+            vacancy_job.result()
+
         daily_job = client.query(daily_query)
         media_job = None
         try:
@@ -201,8 +226,7 @@ def load_all_data(days_back=30, sample_size=None):
         except Exception:
             pass
 
-        # Wait for vacancy + daily to complete
-        vacancy_job.result()
+        # Wait for daily to complete (vacancy already resolved above)
         daily_job.result()
 
         vacancy_df = vacancy_job.to_dataframe(create_bqstorage_client=False)
@@ -2048,6 +2072,8 @@ def create_client_report_tab(df, media_df=None):
         elif 'importer_ID' in media_df.columns and 'importer_ID' in client_df.columns:
             client_ids = client_df['importer_ID'].unique()
             client_media = media_df[media_df['importer_ID'].isin(client_ids)].copy()
+        if client_media is not None and len(client_media) > 0:
+            client_media = apply_media_categories(client_media)
 
     # Store all figures for PDF export
     report_figures = {}
@@ -2337,21 +2363,22 @@ def create_client_report_tab(df, media_df=None):
     st.subheader("Media Performance")
 
     if client_media is not None and len(client_media) > 0:
-        media_stats = client_media.groupby('source').agg(
+        # Category-level summary
+        cat_stats = client_media.groupby('source_category').agg(
             total_clicks=('clicks', 'sum'),
             total_applies=('applies', 'sum'),
             vacancy_count=('entity_id_str', 'nunique')
         ).reset_index()
-        media_stats['avg_views'] = media_stats['total_clicks'] / media_stats['vacancy_count']
-        media_stats['avg_applies'] = media_stats['total_applies'] / media_stats['vacancy_count']
-        media_stats['conversion_rate'] = (media_stats['total_applies'] / media_stats['total_clicks'].replace(0, np.nan) * 100).fillna(0)
-        media_stats = media_stats.sort_values('total_clicks', ascending=False)
+        cat_stats['avg_views'] = cat_stats['total_clicks'] / cat_stats['vacancy_count']
+        cat_stats['avg_applies'] = cat_stats['total_applies'] / cat_stats['vacancy_count']
+        cat_stats['conversion_rate'] = (cat_stats['total_applies'] / cat_stats['total_clicks'].replace(0, np.nan) * 100).fillna(0)
+        cat_stats = cat_stats.sort_values('total_clicks', ascending=False)
 
         media_chart_col, media_table_col = st.columns([1, 1])
 
         with media_table_col:
-            display_media = media_stats[['source', 'vacancy_count', 'avg_views', 'avg_applies', 'conversion_rate']].copy()
-            display_media.columns = ['Source', 'Vacancies', 'Avg. Views', 'Avg. Applies', 'Conversion %']
+            display_media = cat_stats[['source_category', 'vacancy_count', 'avg_views', 'avg_applies', 'conversion_rate']].copy()
+            display_media.columns = ['Channel', 'Vacancies', 'Avg. Views', 'Avg. Applies', 'Conversion %']
             display_media['Avg. Views'] = display_media['Avg. Views'].round(1)
             display_media['Avg. Applies'] = display_media['Avg. Applies'].round(1)
             display_media['Conversion %'] = display_media['Conversion %'].round(1)
@@ -2360,21 +2387,39 @@ def create_client_report_tab(df, media_df=None):
         with media_chart_col:
             fig_media = go.Figure()
             fig_media.add_trace(go.Bar(
-                y=media_stats['source'], x=media_stats['avg_views'],
+                y=cat_stats['source_category'], x=cat_stats['avg_views'],
                 name='Avg. Views', orientation='h', marker_color='#E74C3C'
             ))
             fig_media.add_trace(go.Bar(
-                y=media_stats['source'], x=media_stats['avg_applies'],
+                y=cat_stats['source_category'], x=cat_stats['avg_applies'],
                 name='Avg. Applies', orientation='h', marker_color='#3498DB'
             ))
             fig_media.update_layout(
-                barmode='group', height=max(350, len(media_stats) * 40),
-                title="Media Performance by Source",
+                barmode='group', height=max(350, len(cat_stats) * 40),
+                title="Media Performance by Channel",
                 xaxis_title="Average per Vacancy", yaxis_title="",
                 legend=dict(orientation='h', y=-0.15)
             )
             st.plotly_chart(fig_media, use_container_width=True)
             report_figures['media'] = fig_media
+
+        # Source-level detail (expandable)
+        with st.expander("View by individual source"):
+            media_stats = client_media.groupby(['source_category', 'source']).agg(
+                total_clicks=('clicks', 'sum'),
+                total_applies=('applies', 'sum'),
+                vacancy_count=('entity_id_str', 'nunique')
+            ).reset_index()
+            media_stats['avg_views'] = media_stats['total_clicks'] / media_stats['vacancy_count']
+            media_stats['avg_applies'] = media_stats['total_applies'] / media_stats['vacancy_count']
+            media_stats['conversion_rate'] = (media_stats['total_applies'] / media_stats['total_clicks'].replace(0, np.nan) * 100).fillna(0)
+            media_stats = media_stats.sort_values('total_clicks', ascending=False)
+            detail_media = media_stats[['source_category', 'source', 'vacancy_count', 'avg_views', 'avg_applies', 'conversion_rate']].copy()
+            detail_media.columns = ['Channel', 'Source', 'Vacancies', 'Avg. Views', 'Avg. Applies', 'Conversion %']
+            detail_media['Avg. Views'] = detail_media['Avg. Views'].round(1)
+            detail_media['Avg. Applies'] = detail_media['Avg. Applies'].round(1)
+            detail_media['Conversion %'] = detail_media['Conversion %'].round(1)
+            st.dataframe(detail_media, use_container_width=True, hide_index=True)
     else:
         st.info("Media source data not available. Run the `dashboard_media_summary` BigQuery table creation to enable this section.")
 
@@ -2629,8 +2674,12 @@ def main():
     df = parse_dates_in_jobiqo(df)  # Parse timestamp columns
     progress_bar.progress(90)
 
-    status_text.text("Adding occupation column... 90%")
+    status_text.text("Adding occupation column... 88%")
     df = add_occupation_column(df)
+    progress_bar.progress(90)
+
+    status_text.text("Processing salary data... 92%")
+    df = process_salary_columns(df)
     progress_bar.progress(100)
 
     status_text.text("✅ Data loaded successfully!")
@@ -2638,7 +2687,7 @@ def main():
     status_text.empty()
 
     # Initialize session state for all tabs
-    for tab_prefix in ['overview', 'deepdive', 'vacancy', 'comp_left', 'comp_right', 'sales']:
+    for tab_prefix in ['overview', 'deepdive', 'vacancy', 'comp_left', 'comp_right', 'sales', 'salary']:
         if f'{tab_prefix}_filters' not in st.session_state:
             st.session_state[f'{tab_prefix}_filters'] = None
 
@@ -2695,14 +2744,15 @@ def main():
                 st.write(f"'{name}': {count} vacancies")
 
     # Tabs
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "📊 Overview",
         "🔍 Deep Dive",
         "📋 Vacancy Performance",
         "⚖️ Comparison",
         "💼 Sales Intelligence",
         "📅 Launch Timing",
-        "📄 Client Report"
+        "📄 Client Report",
+        "💰 Salary Benchmarking"
     ])
 
     with tab1:
@@ -2725,6 +2775,9 @@ def main():
 
     with tab7:
         create_client_report_tab(df, media_df=media_df)
+
+    with tab8:
+        render_salary(df)
 
 if __name__ == "__main__":
     main()

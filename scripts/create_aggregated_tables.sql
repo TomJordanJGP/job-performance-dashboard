@@ -36,7 +36,15 @@ SELECT
   ANY_VALUE(expiration_date) as end_date,
   ANY_VALUE(category) as category,
   ANY_VALUE(contract_type) as contract_type,
-  ANY_VALUE(employment_type) as employment_type
+  ANY_VALUE(employment_type) as employment_type,
+
+  -- Salary fields
+  ANY_VALUE(min_salary) as min_salary,
+  ANY_VALUE(max_salary) as max_salary,
+  ANY_VALUE(currency_code) as currency_code,
+  ANY_VALUE(salary_free_text) as salary_free_text,
+  ANY_VALUE(salary_exact) as salary_exact,
+  ANY_VALUE(salary_unit) as salary_unit
 
 FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
 WHERE event_name IN ('job_visit', 'job_apply_start')

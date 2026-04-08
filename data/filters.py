@@ -1,0 +1,278 @@
+"""Filter creation and application functions."""
+
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+from data.regions import (
+    get_available_countries,
+    get_regions_for_countries,
+    resolve_country_region_selections,
+)
+
+
+def _get_available_regions(df):
+    """Extract all unique regions from pipe-separated uk_regions column."""
+    all_regions = set()
+    if 'uk_regions' in df.columns:
+        for regions_str in df['uk_regions'].dropna():
+            for r in str(regions_str).split(' | '):
+                r = r.strip()
+                if r:
+                    all_regions.add(r)
+    return all_regions
+
+
+def create_sidebar_filters(df, key_prefix='global'):
+    """Create the global filter panel in the sidebar. All filters visible (no expander).
+
+    Returns:
+        tuple: (filters_dict, apply_clicked_bool)
+    """
+    filters = {}
+
+    # Date Range
+    date_col = 'last_event_date' if 'last_event_date' in df.columns else None
+    if date_col and pd.api.types.is_datetime64_any_dtype(df[date_col]):
+        min_date = df['first_event_date'].dropna().min() if 'first_event_date' in df.columns else df[date_col].dropna().min()
+        max_date = df[date_col].dropna().max()
+        if pd.isna(min_date) or pd.isna(max_date):
+            min_date = datetime.now().date()
+            max_date = datetime.now().date()
+        else:
+            min_date = min_date.date() if hasattr(min_date, 'date') else min_date
+            max_date = max_date.date() if hasattr(max_date, 'date') else max_date
+
+        filters['date_range'] = st.sidebar.date_input(
+            "Date Range",
+            [min_date, max_date],
+            min_value=min_date,
+            max_value=max_date,
+            key=f'{key_prefix}_date'
+        )
+
+    # Importer
+    if 'importer_name' in df.columns:
+        importers = sorted(df['importer_name'].dropna().unique())
+        filters['importer'] = st.sidebar.multiselect(
+            "Importer",
+            importers,
+            key=f'{key_prefix}_importer'
+        )
+
+    # Company
+    if 'organization_name' in df.columns:
+        companies = sorted(df['organization_name'].dropna().unique())
+        filters['company'] = st.sidebar.multiselect(
+            "Client / Company",
+            companies,
+            key=f'{key_prefix}_company'
+        )
+
+    # Country / Region (two linked filters)
+    available_regions = _get_available_regions(df)
+    if available_regions:
+        country_options = get_available_countries(available_regions)
+        selected_countries = st.sidebar.multiselect(
+            "Country",
+            country_options,
+            key=f'{key_prefix}_country'
+        )
+
+        region_options = get_regions_for_countries(selected_countries, available_regions)
+        selected_regions = st.sidebar.multiselect(
+            "Region",
+            region_options,
+            key=f'{key_prefix}_region'
+        )
+
+        filters['region'] = resolve_country_region_selections(
+            selected_countries, selected_regions, available_regions
+        )
+
+    # Occupation
+    if 'occupation' in df.columns:
+        occupations = sorted(df['occupation'].dropna().unique())
+        filters['occupation'] = st.sidebar.multiselect(
+            "Occupation",
+            occupations,
+            key=f'{key_prefix}_occupation'
+        )
+
+    # Job Title Search
+    filters['job_title'] = st.sidebar.text_input(
+        "Job Title (search)",
+        key=f'{key_prefix}_title',
+        placeholder="e.g., Housing Director"
+    )
+
+    # Upgrades
+    if 'upgrades_list' in df.columns:
+        all_upgrades = set()
+        for upgrades in df['upgrades_list']:
+            all_upgrades.update(upgrades)
+        upgrade_options = sorted(list(all_upgrades))
+        filters['upgrades'] = st.sidebar.multiselect(
+            "Upgrades",
+            upgrade_options,
+            key=f'{key_prefix}_upgrades'
+        )
+
+    # Apply Filters button
+    apply_clicked = st.sidebar.button(
+        "Apply Filters",
+        key=f'{key_prefix}_apply',
+        type="primary",
+        use_container_width=True
+    )
+
+    return filters, apply_clicked
+
+
+def create_inline_filters(df, key_prefix):
+    """Create a compact inline filter panel (used in Compare page).
+
+    Returns:
+        tuple: (filters_dict, apply_clicked_bool)
+    """
+    filters = {}
+
+    # Date Range
+    date_col = 'last_event_date' if 'last_event_date' in df.columns else None
+    if date_col and pd.api.types.is_datetime64_any_dtype(df[date_col]):
+        min_date = df['first_event_date'].dropna().min() if 'first_event_date' in df.columns else df[date_col].dropna().min()
+        max_date = df[date_col].dropna().max()
+        if pd.isna(min_date) or pd.isna(max_date):
+            min_date = datetime.now().date()
+            max_date = datetime.now().date()
+        else:
+            min_date = min_date.date() if hasattr(min_date, 'date') else min_date
+            max_date = max_date.date() if hasattr(max_date, 'date') else max_date
+
+        filters['date_range'] = st.date_input(
+            "Date Range",
+            [min_date, max_date],
+            min_value=min_date,
+            max_value=max_date,
+            key=f'{key_prefix}_date'
+        )
+
+    # Importer
+    if 'importer_name' in df.columns:
+        importers = sorted(df['importer_name'].dropna().unique())
+        filters['importer'] = st.multiselect(
+            "Importer",
+            importers,
+            key=f'{key_prefix}_importer'
+        )
+
+    # Company
+    if 'organization_name' in df.columns:
+        companies = sorted(df['organization_name'].dropna().unique())
+        filters['company'] = st.multiselect(
+            "Client / Company",
+            companies,
+            key=f'{key_prefix}_company'
+        )
+
+    # Country / Region (two linked filters)
+    available_regions = _get_available_regions(df)
+    if available_regions:
+        country_options = get_available_countries(available_regions)
+        selected_countries = st.multiselect(
+            "Country",
+            country_options,
+            key=f'{key_prefix}_country'
+        )
+
+        region_options = get_regions_for_countries(selected_countries, available_regions)
+        selected_regions = st.multiselect(
+            "Region",
+            region_options,
+            key=f'{key_prefix}_region'
+        )
+
+        filters['region'] = resolve_country_region_selections(
+            selected_countries, selected_regions, available_regions
+        )
+
+    # Occupation
+    if 'occupation' in df.columns:
+        filters['occupation'] = st.multiselect(
+            "Occupation",
+            sorted(df['occupation'].dropna().unique()),
+            key=f'{key_prefix}_occupation'
+        )
+
+    # Upgrades
+    if 'upgrades_list' in df.columns:
+        all_upgrades = set()
+        for upgrades in df['upgrades_list']:
+            all_upgrades.update(upgrades)
+        filters['upgrades'] = st.multiselect(
+            "Upgrades",
+            sorted(list(all_upgrades)),
+            key=f'{key_prefix}_upgrades'
+        )
+
+    # Apply button
+    apply_clicked = st.button(
+        "Apply Filters",
+        key=f'{key_prefix}_apply',
+        type="primary",
+        use_container_width=True
+    )
+
+    return filters, apply_clicked
+
+
+def apply_filters_to_data(df, filters):
+    """Apply filter selections to dataframe."""
+    if filters is None:
+        return df.copy()
+
+    filtered = df.copy()
+
+    # Date Range
+    if filters.get('date_range') and len(filters['date_range']) == 2:
+        start_date, end_date = filters['date_range']
+        if 'first_event_date' in filtered.columns and 'last_event_date' in filtered.columns:
+            if pd.api.types.is_datetime64_any_dtype(filtered['last_event_date']):
+                filtered = filtered[
+                    (filtered['first_event_date'].dt.date <= end_date) &
+                    (filtered['last_event_date'].dt.date >= start_date)
+                ]
+
+    # Importer
+    if filters.get('importer') and 'importer_name' in filtered.columns:
+        filtered = filtered[filtered['importer_name'].isin(filters['importer'])]
+
+    # Company
+    if filters.get('company') and 'organization_name' in filtered.columns:
+        filtered = filtered[filtered['organization_name'].isin(filters['company'])]
+
+    # Region (already resolved from country selections)
+    if filters.get('region') and 'uk_regions' in filtered.columns:
+        selected_regions = set(filters['region'])
+        mask = filtered['uk_regions'].apply(
+            lambda x: bool(selected_regions & set(r.strip() for r in str(x).split(' | ')))
+            if pd.notna(x) else False
+        )
+        filtered = filtered[mask]
+
+    # Occupation
+    if filters.get('occupation') and 'occupation' in filtered.columns:
+        filtered = filtered[filtered['occupation'].isin(filters['occupation'])]
+
+    # Upgrades
+    if filters.get('upgrades') and 'upgrades_list' in filtered.columns:
+        filtered = filtered[filtered['upgrades_list'].apply(
+            lambda x: any(upgrade in x for upgrade in filters['upgrades'])
+        )]
+
+    # Job Title Search
+    if filters.get('job_title') and filters['job_title'].strip():
+        if 'title' in filtered.columns:
+            search_term = filters['job_title'].strip().lower()
+            filtered = filtered[filtered['title'].str.lower().str.contains(search_term, na=False)]
+
+    return filtered

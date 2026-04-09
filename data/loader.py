@@ -66,11 +66,17 @@ def get_bigquery_client():
 
 
 @st.cache_data(ttl=14400)
-def load_all_data(days_back=30, sample_size=None):
+def load_all_data(days_back=None, sample_size=None):
     """Load vacancy summary and daily totals in a single BigQuery call."""
     try:
         client = get_bigquery_client()
-        cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+        if days_back is not None:
+            cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+            vacancy_where = f"WHERE last_event_date >= '{cutoff_date}'"
+            daily_where = f"WHERE event_date >= '{cutoff_date}'"
+        else:
+            vacancy_where = ""
+            daily_where = ""
         limit_clause = f"LIMIT {sample_size}" if sample_size else ""
 
         # Core fields always present in dashboard_vacancy_summary
@@ -108,7 +114,7 @@ def load_all_data(days_back=30, sample_size=None):
         vacancy_query = f"""
         SELECT {core_fields}{salary_fields}
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
-        WHERE last_event_date >= '{cutoff_date}'
+        {vacancy_where}
         {limit_clause}
         """
 
@@ -121,7 +127,7 @@ def load_all_data(days_back=30, sample_size=None):
             active_jgp,
             active_lg
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_DAILY_TOTALS_TABLE_ID}`
-        WHERE event_date >= '{cutoff_date}'
+        {daily_where}
         ORDER BY event_date
         """
 
@@ -133,7 +139,7 @@ def load_all_data(days_back=30, sample_size=None):
             vacancy_query = f"""
             SELECT {core_fields}
             FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_TABLE_ID}`
-            WHERE last_event_date >= '{cutoff_date}'
+            {vacancy_where}
             {limit_clause}
             """
             vacancy_job = client.query(vacancy_query)

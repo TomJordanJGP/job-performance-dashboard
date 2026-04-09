@@ -52,9 +52,9 @@ def main():
         # JGP Logo
         st.markdown(sidebar_logo(), unsafe_allow_html=True)
 
-    # === DATA LOADING (fixed 365 days, no data settings exposed) ===
+    # === DATA LOADING (all data, no date cutoff) ===
     with st.spinner("Loading data..."):
-        df_raw, daily_totals = load_all_data(days_back=365, sample_size=None)
+        df_raw, daily_totals = load_all_data(sample_size=None)
         df = _process_raw_data(df_raw)
 
     # Initialize session state

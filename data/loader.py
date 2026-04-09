@@ -95,16 +95,14 @@ def load_all_data(days_back=30, sample_size=None):
             contract_type,
             employment_type"""
 
-        # Salary fields and metadata-only flag
-        # (added after running updated create_aggregated_tables.sql)
+        # Salary fields (added after running updated create_aggregated_tables.sql)
         salary_fields = """,
             min_salary,
             max_salary,
             currency_code,
             salary_free_text,
             salary_exact,
-            salary_unit,
-            has_events"""
+            salary_unit"""
 
         vacancy_query = f"""
         SELECT {core_fields}{salary_fields}

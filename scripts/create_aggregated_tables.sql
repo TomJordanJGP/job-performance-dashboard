@@ -27,9 +27,6 @@ SELECT
   COUNTIF(event_name = 'job_visit') as clicks,
   COUNTIF(event_name = 'job_apply_start') as applies,
 
-  -- Whether this vacancy has any GA4 traffic data
-  MAX(IF(event_name != 'metadata_only', 1, 0)) as has_events,
-
   -- Dimensions (take first non-null value per vacancy)
   ANY_VALUE(title) as title,
   ANY_VALUE(organization_name) as organization_name,
@@ -60,21 +57,50 @@ GROUP BY entity_id_str;
 
 -- Table 2: Daily totals (one row per day)
 -- Used for: trend line charts. Lightweight — ~365 rows per year.
--- Filtered trends are computed in the app from vacancy summary.
+-- active_vacancies = vacancies live on the site that day (published and not yet expired),
+-- derived from the vacancy summary's start_date/end_date rather than GA4 events.
+-- Clicks/applies still come from GA4 events only.
 CREATE OR REPLACE TABLE `site-monitoring-421401.job_data_export.dashboard_daily_totals`
 PARTITION BY event_date
 AS
-WITH enriched AS (
-  SELECT * FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
+WITH
+-- Clicks and applies from GA4 events per day
+daily_events AS (
+  SELECT
+    event_date_parsed AS event_date,
+    COUNTIF(event_name = 'job_visit') AS clicks,
+    COUNTIF(event_name = 'job_apply_start') AS applies
+  FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
   WHERE event_name IN ('job_visit', 'job_apply_start')
+  GROUP BY event_date_parsed
+),
+-- Date spine: one row for every day from earliest event to today
+date_spine AS (
+  SELECT d AS event_date
+  FROM UNNEST(GENERATE_DATE_ARRAY(
+    (SELECT MIN(event_date) FROM daily_events),
+    CURRENT_DATE()
+  )) AS d
+),
+-- Count vacancies that were live on each day (published <= day <= expired)
+daily_active AS (
+  SELECT
+    ds.event_date,
+    COUNT(DISTINCT vs.entity_id_str) AS active_vacancies
+  FROM date_spine ds
+  LEFT JOIN `site-monitoring-421401.job_data_export.dashboard_vacancy_summary` vs
+    ON ds.event_date >= DATE(vs.start_date)
+    AND (ds.event_date <= DATE(vs.end_date) OR vs.end_date IS NULL)
+  GROUP BY ds.event_date
 )
 SELECT
-  event_date_parsed as event_date,
-  COUNTIF(event_name = 'job_visit') as clicks,
-  COUNTIF(event_name = 'job_apply_start') as applies,
-  COUNT(DISTINCT entity_id_str) as active_vacancies
-FROM enriched
-GROUP BY event_date_parsed;
+  da.event_date,
+  COALESCE(de.clicks, 0) AS clicks,
+  COALESCE(de.applies, 0) AS applies,
+  da.active_vacancies
+FROM daily_active da
+LEFT JOIN daily_events de
+  ON da.event_date = de.event_date;
 
 
 -- Table 3: Per-vacancy media source breakdown (one row per vacancy + source combo)

@@ -154,7 +154,7 @@ SELECT
   CAST(NULL AS STRING) as medium,
   CAST(NULL AS STRING) as source,
 
-  -- No importer_ID from GA4; infer from feed if possible
+  -- No importer_ID from GA4 - infer from feed if possible
   CAST(NULL AS INT64) as importer_ID,
   COALESCE(feed_m.feed_name, 'Unknown') as importer_name,
 

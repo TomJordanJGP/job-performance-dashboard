@@ -326,20 +326,40 @@ def render_salary(df):
     with occ_tab1:
         if occ_stats:
             with st.expander("How to read a box plot", icon="\u2139\ufe0f"):
-                st.markdown(
-                    "```\n"
-                    "  \u25c4\u2500\u2500\u2500\u252c\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u256b\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u252c\u2500\u2500\u2500\u25ba   \u25c6\n"
-                    "       \u2502   25th   \u2551  75th   \u2502          Outlier\n"
-                    "       \u2502         Median   \u2502\n"
-                    "```\n\n"
-                    "| Element | Meaning |\n"
-                    "|---|---|\n"
-                    "| **Box** (shaded area) | Middle 50% of salaries (25th to 75th percentile) |\n"
-                    "| **Vertical line** inside box | **Median** \u2014 the midpoint salary |\n"
-                    "| **Diamond / dashed line** | **Mean** (average) salary |\n"
-                    "| **Whiskers** (lines extending from box) | Range of typical values (up to 1.5\u00d7 the box width) |\n"
-                    "| **Dots** beyond whiskers | **Outliers** \u2014 unusually high or low salaries |"
+                # Annotated example box plot as a Plotly figure
+                guide_fig = go.Figure()
+                guide_fig.add_trace(go.Box(
+                    x=[25000, 28000, 30000, 32000, 35000, 36000, 38000, 40000, 42000, 45000, 65000],
+                    name="Example",
+                    marker_color=JGP_COLORS['primary'],
+                    line_color=JGP_COLORS['deep_blue'],
+                    boxmean=True,
+                ))
+                guide_fig.add_annotation(x=35000, y=-0.35, text="<b>Median</b><br>Midpoint salary",
+                                         showarrow=True, ay=40, font=dict(size=11, color=JGP_COLORS['deep_blue']),
+                                         arrowcolor=JGP_COLORS['deep_blue'])
+                guide_fig.add_annotation(x=30000, y=0.35, text="<b>25th percentile</b><br>Bottom of box",
+                                         showarrow=True, ay=-40, font=dict(size=11, color=JGP_COLORS['primary']),
+                                         arrowcolor=JGP_COLORS['primary'])
+                guide_fig.add_annotation(x=42000, y=0.35, text="<b>75th percentile</b><br>Top of box",
+                                         showarrow=True, ay=-40, font=dict(size=11, color=JGP_COLORS['primary']),
+                                         arrowcolor=JGP_COLORS['primary'])
+                guide_fig.add_annotation(x=25000, y=-0.35, text="<b>Whisker</b><br>Min typical value",
+                                         showarrow=True, ay=40, font=dict(size=11, color=JGP_COLORS['supporting']),
+                                         arrowcolor=JGP_COLORS['supporting'])
+                guide_fig.add_annotation(x=65000, y=-0.35, text="<b>Outlier</b><br>Unusually high",
+                                         showarrow=True, ay=40, font=dict(size=11, color=JGP_COLORS['supporting']),
+                                         arrowcolor=JGP_COLORS['supporting'])
+                guide_fig.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(family="DM Sans, sans-serif", size=12),
+                    height=180, margin=dict(t=10, b=60, l=10, r=10),
+                    xaxis=dict(title="Annual Salary", tickformat=",", gridcolor=JGP_COLORS['light_purple']),
+                    yaxis=dict(visible=False),
+                    showlegend=False,
                 )
+                st.plotly_chart(guide_fig, use_container_width=True)
+                st.caption("The **box** shows the middle 50% of salaries. The **dashed line** inside is the mean (average). Dots beyond the whiskers are outliers.")
 
             # Top 20 occupations by count for box plot
             top_occs = sorted(occ_stats, key=lambda x: x['Count'], reverse=True)[:20]

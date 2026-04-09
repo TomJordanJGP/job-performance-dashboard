@@ -110,7 +110,10 @@ SELECT
     COALESCE(metadata.hq_region, vloc.primary_uk_region)
   ) as primary_uk_region,
   metadata.hq_region,
-  metadata.hq_county
+  metadata.hq_county,
+
+  -- Site (JGP vs LG Jobs) from GA4 event
+  events.site
 
 FROM `site-monitoring-421401.job_data_export.job_performance_details_combined` AS events
 LEFT JOIN `site-monitoring-421401.job_data_export.job_metadata` AS metadata
@@ -190,7 +193,10 @@ SELECT
     COALESCE(m.hq_region, vloc_m.primary_uk_region)
   ) as primary_uk_region,
   m.hq_region,
-  m.hq_county
+  m.hq_county,
+
+  -- No site info for metadata-only vacancies (no GA4 events)
+  CAST(NULL AS STRING) as site
 
 FROM `site-monitoring-421401.job_data_export.job_metadata` AS m
 -- Exclude vacancies that already have GA4 events (covered by Part 1)

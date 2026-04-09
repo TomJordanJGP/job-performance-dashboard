@@ -95,14 +95,15 @@ def load_all_data(days_back=30, sample_size=None):
             contract_type,
             employment_type"""
 
-        # Salary fields (added after running updated create_aggregated_tables.sql)
+        # Salary + sites fields (added after running updated create_aggregated_tables.sql)
         salary_fields = """,
             min_salary,
             max_salary,
             currency_code,
             salary_free_text,
             salary_exact,
-            salary_unit"""
+            salary_unit,
+            sites"""
 
         vacancy_query = f"""
         SELECT {core_fields}{salary_fields}
@@ -116,7 +117,9 @@ def load_all_data(days_back=30, sample_size=None):
             event_date,
             clicks,
             applies,
-            active_vacancies
+            active_vacancies,
+            active_jgp,
+            active_lg
         FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_DAILY_TOTALS_TABLE_ID}`
         WHERE event_date >= '{cutoff_date}'
         ORDER BY event_date

@@ -49,7 +49,11 @@ SELECT
   ANY_VALUE(currency_code) as currency_code,
   ANY_VALUE(salary_free_text) as salary_free_text,
   ANY_VALUE(salary_exact) as salary_exact,
-  ANY_VALUE(salary_unit) as salary_unit
+  ANY_VALUE(salary_unit) as salary_unit,
+
+  -- Sites this vacancy appeared on (pipe-separated, e.g. 'Jobs Go Public | LG Jobs')
+  -- NULL for metadata-only vacancies with no GA4 events
+  STRING_AGG(DISTINCT site, ' | ' ORDER BY site) as sites
 
 FROM enriched
 GROUP BY entity_id_str;
@@ -83,10 +87,13 @@ date_spine AS (
   )) AS d
 ),
 -- Count vacancies that were live on each day (published <= day <= expired)
+-- Also count per-site using the sites field (a vacancy on both sites counts toward both)
 daily_active AS (
   SELECT
     ds.event_date,
-    COUNT(DISTINCT vs.entity_id_str) AS active_vacancies
+    COUNT(DISTINCT vs.entity_id_str) AS active_vacancies,
+    COUNT(DISTINCT IF(vs.sites LIKE '%Jobs Go Public%', vs.entity_id_str, NULL)) AS active_jgp,
+    COUNT(DISTINCT IF(vs.sites LIKE '%LG Jobs%', vs.entity_id_str, NULL)) AS active_lg
   FROM date_spine ds
   LEFT JOIN `site-monitoring-421401.job_data_export.dashboard_vacancy_summary` vs
     ON ds.event_date >= DATE(vs.start_date)
@@ -97,7 +104,9 @@ SELECT
   da.event_date,
   COALESCE(de.clicks, 0) AS clicks,
   COALESCE(de.applies, 0) AS applies,
-  da.active_vacancies
+  da.active_vacancies,
+  da.active_jgp,
+  da.active_lg
 FROM daily_active da
 LEFT JOIN daily_events de
   ON da.event_date = de.event_date;

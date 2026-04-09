@@ -5,6 +5,10 @@
 -- Location regions joined from vacancy_locations (exploded table) — concatenated for display.
 -- Region names normalised via region_canonical lookup (London -> Greater London, etc.).
 --
+-- Metadata-only vacancies (no GA4 events) are included via UNION ALL with
+-- event_name = 'metadata_only' so they appear in vacancy-level analysis
+-- (salary benchmarking, field completeness) even without traffic data.
+--
 -- Schedule this in BigQuery Console AFTER the incremental sync runs:
 --   https://console.cloud.google.com/bigquery/scheduled-queries?project=site-monitoring-421401
 --   Frequency: Daily (e.g. 07:00 UTC — 1 hour after the sync)
@@ -14,6 +18,8 @@ CREATE OR REPLACE TABLE `site-monitoring-421401.job_data_export.job_performance_
 PARTITION BY event_date_parsed
 CLUSTER BY entity_id_str, event_date_parsed
 AS
+
+-- Part 1: GA4 events enriched with metadata (existing logic)
 SELECT
   -- IDs
   CAST(events.entity_id AS STRING) as entity_id_str,
@@ -126,4 +132,86 @@ LEFT JOIN `site-monitoring-421401.job_data_export.region_canonical` AS rc_all
   ON LOWER(COALESCE(metadata.hq_region, vloc.uk_regions_all)) = rc_all.variant
 -- Normalise primary_uk_region via canonical lookup
 LEFT JOIN `site-monitoring-421401.job_data_export.region_canonical` AS rc_primary
-  ON LOWER(COALESCE(metadata.hq_region, vloc.primary_uk_region)) = rc_primary.variant;
+  ON LOWER(COALESCE(metadata.hq_region, vloc.primary_uk_region)) = rc_primary.variant
+
+UNION ALL
+
+-- Part 2: Metadata-only vacancies (no GA4 events)
+-- These vacancies exist in job_metadata but have never received a job_visit
+-- or job_apply_start event. They are included for salary benchmarking,
+-- field completeness, and vacancy-level analysis.
+SELECT
+  m.entity_id as entity_id_str,
+  DATE(m.publishing_date) as event_date_parsed,
+  m.external_id,
+
+  -- Synthetic event marker — filtered out of click/apply counts,
+  -- included in vacancy-level aggregations
+  'metadata_only' as event_name,
+  CAST(NULL AS STRING) as entity_type,
+  CAST(NULL AS STRING) as upgrades,
+  CAST(NULL AS STRING) as campaign,
+  CAST(NULL AS STRING) as medium,
+  CAST(NULL AS STRING) as source,
+
+  -- No importer_ID from GA4; infer from feed if possible
+  CAST(NULL AS INT64) as importer_ID,
+  COALESCE(feed_m.feed_name, 'Unknown') as importer_name,
+
+  -- All fields from metadata only
+  m.title,
+  m.organization_profile_name as organization_name,
+  m.organization_id,
+  m.occupational_fields,
+  m.employment_type,
+  m.min_salary,
+  m.max_salary,
+  m.currency_code,
+
+  m.workflow_state,
+  m.category,
+  m.contract_type,
+  m.employer_type,
+  m.publishing_date,
+  m.expiration_date,
+  m.original_publishing_date,
+  m.salary_free_text,
+  m.salary_exact,
+  m.salary_unit,
+  m.last_updated as metadata_last_updated,
+
+  -- Location regions (same logic as Part 1)
+  COALESCE(
+    rc_all_m.canonical_region,
+    COALESCE(m.hq_region, vloc_m.uk_regions_all)
+  ) as uk_regions_all,
+  COALESCE(
+    rc_primary_m.canonical_region,
+    COALESCE(m.hq_region, vloc_m.primary_uk_region)
+  ) as primary_uk_region,
+  m.hq_region,
+  m.hq_county
+
+FROM `site-monitoring-421401.job_data_export.job_metadata` AS m
+-- Exclude vacancies that already have GA4 events (covered by Part 1)
+LEFT JOIN (
+  SELECT DISTINCT CAST(entity_id AS STRING) AS entity_id_str
+  FROM `site-monitoring-421401.job_data_export.job_performance_details_combined`
+) AS has_events
+  ON m.entity_id = has_events.entity_id_str
+LEFT JOIN `site-monitoring-421401.job_data_export.feed_jobs_latest` AS feed_m
+  ON m.external_id = feed_m.feed_id
+LEFT JOIN (
+  SELECT entity_id,
+         STRING_AGG(DISTINCT uk_region, ' | ' ORDER BY uk_region) as uk_regions_all,
+         ANY_VALUE(uk_region) as primary_uk_region
+  FROM `site-monitoring-421401.job_data_export.vacancy_locations`
+  WHERE uk_region IS NOT NULL AND TRIM(uk_region) != ''
+  GROUP BY entity_id
+) AS vloc_m
+  ON m.entity_id = vloc_m.entity_id
+LEFT JOIN `site-monitoring-421401.job_data_export.region_canonical` AS rc_all_m
+  ON LOWER(COALESCE(m.hq_region, vloc_m.uk_regions_all)) = rc_all_m.variant
+LEFT JOIN `site-monitoring-421401.job_data_export.region_canonical` AS rc_primary_m
+  ON LOWER(COALESCE(m.hq_region, vloc_m.primary_uk_region)) = rc_primary_m.variant
+WHERE has_events.entity_id_str IS NULL;

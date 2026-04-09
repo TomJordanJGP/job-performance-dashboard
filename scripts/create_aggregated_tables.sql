@@ -9,22 +9,26 @@
 
 -- Table 1: Per-vacancy summary (one row per vacancy)
 -- Used for: metric cards, importer/region/occupation charts, vacancy table, benchmarks
+-- Includes metadata-only vacancies (no GA4 events) for salary/field analysis
 CREATE OR REPLACE TABLE `site-monitoring-421401.job_data_export.dashboard_vacancy_summary`
 AS
 WITH enriched AS (
   SELECT * FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
-  WHERE event_name IN ('job_visit', 'job_apply_start')
+  WHERE event_name IN ('job_visit', 'job_apply_start', 'metadata_only')
 )
 SELECT
   entity_id_str,
 
-  -- Date range this vacancy was seen
+  -- Date range this vacancy was seen (metadata-only vacancies use publishing_date)
   MIN(event_date_parsed) as first_event_date,
   MAX(event_date_parsed) as last_event_date,
 
-  -- Event counts
+  -- Event counts (metadata_only rows contribute 0 to both)
   COUNTIF(event_name = 'job_visit') as clicks,
   COUNTIF(event_name = 'job_apply_start') as applies,
+
+  -- Whether this vacancy has any GA4 traffic data
+  MAX(IF(event_name != 'metadata_only', 1, 0)) as has_events,
 
   -- Dimensions (take first non-null value per vacancy)
   ANY_VALUE(title) as title,

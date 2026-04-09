@@ -39,23 +39,23 @@ FULL_CSS = """
         border-color: rgba(255,255,255,0.15);
     }
 
-    /* Sidebar inputs */
+    /* Sidebar inputs - consistent white style */
     [data-testid="stSidebar"] .stDateInput input,
     [data-testid="stSidebar"] .stTextInput input {
-        background-color: #3a1a6e;
-        color: #ffffff;
+        background-color: #ffffff;
+        color: #240f45;
         border-color: #9c67d3;
         border-radius: 6px;
     }
 
     [data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] {
-        background-color: #3a1a6e;
+        background-color: #ffffff;
         border-color: #9c67d3;
         border-radius: 6px;
     }
 
     [data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] span {
-        color: #ffffff !important;
+        color: #240f45 !important;
     }
 
     /* Sidebar button */

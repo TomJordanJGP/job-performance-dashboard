@@ -141,9 +141,9 @@ def render_performance(df):
                 m = calculate_metrics(subset)
                 benchmark_data.append({
                     dimension: value,
-                    'Vacancies': f"{m['num_vacancies']:,}",
-                    'Total Clicks': _fmt(m['total_clicks']),
-                    'Total Applies': _fmt(m['total_applies']),
+                    'Vacancies': m['num_vacancies'],
+                    'Total Clicks': int(round(m['total_clicks'])),
+                    'Total Applies': int(round(m['total_applies'])),
                     'Apply/Click %': round(m['apply_click_ratio']),
                     'Avg Clicks/Vac': round(m['mean_clicks_per_vacancy']),
                     'Avg Applies/Vac': round(m['mean_applies_per_vacancy']),
@@ -154,9 +154,9 @@ def render_performance(df):
                 m = calculate_metrics(subset)
                 benchmark_data.append({
                     dimension: value,
-                    'Vacancies': f"{m['num_vacancies']:,}",
-                    'Total Clicks': _fmt(m['total_clicks']),
-                    'Total Applies': _fmt(m['total_applies']),
+                    'Vacancies': m['num_vacancies'],
+                    'Total Clicks': int(round(m['total_clicks'])),
+                    'Total Applies': int(round(m['total_applies'])),
                     'Apply/Click %': round(m['apply_click_ratio']),
                     'Avg Clicks/Vac': round(m['mean_clicks_per_vacancy']),
                     'Avg Applies/Vac': round(m['mean_applies_per_vacancy']),
@@ -164,7 +164,19 @@ def render_performance(df):
 
         if benchmark_data:
             benchmark_df = pd.DataFrame(benchmark_data).sort_values(dimension, ascending=True)
-            st.dataframe(benchmark_df, width='stretch', hide_index=True)
+            st.dataframe(
+                benchmark_df,
+                width='stretch',
+                hide_index=True,
+                column_config={
+                    'Vacancies': st.column_config.NumberColumn(format="%,d"),
+                    'Total Clicks': st.column_config.NumberColumn(format="%,d"),
+                    'Total Applies': st.column_config.NumberColumn(format="%,d"),
+                    'Apply/Click %': st.column_config.NumberColumn(format="%d%%"),
+                    'Avg Clicks/Vac': st.column_config.NumberColumn(format="%,d"),
+                    'Avg Applies/Vac': st.column_config.NumberColumn(format="%,d"),
+                },
+            )
 
             csv = benchmark_df.to_csv(index=False).encode('utf-8')
             st.download_button(
@@ -237,7 +249,7 @@ def render_performance(df):
             )
             fig.update_layout(
                 **JGP_PLOTLY_TEMPLATE['layout'],
-                height=max(400, len(heatmap_pivot) * 30),
+                height=min(1200, max(400, len(heatmap_pivot) * 30)),
             )
             st.plotly_chart(fig, width='stretch')
 
@@ -301,9 +313,9 @@ def render_performance(df):
             'Occupation': occupation,
             'Importer': job.get('importer_name', 'Unknown'),
             'Upgrades': upgrades_str if upgrades_str else 'None',
-            'Clicks': f"{clicks:,}",
-            'Applies': f"{applies:,}",
-            'Ratio %': f"{ratio}%" if clicks > 0 else None,
+            'Clicks': clicks,
+            'Applies': applies,
+            'Ratio %': ratio if clicks > 0 else None,
             'Clicks/Day': round(clicks / days_active) if days_active and days_active > 0 else None,
             'Applies/Day': round(applies / days_active) if days_active and days_active > 0 else None,
             'Avg Clicks/Vac (Occ)': occ_clicks_avg,
@@ -316,12 +328,24 @@ def render_performance(df):
         st.markdown(empty_state("No vacancies found for the selected filters.", "inbox"), unsafe_allow_html=True)
         return
 
-    # Sort by Clicks (need numeric for sort, display formatted)
-    vacancy_df['_clicks_sort'] = filtered_df['clicks'].values
-    vacancy_df = vacancy_df.sort_values('_clicks_sort', ascending=False).drop(columns=['_clicks_sort'])
+    vacancy_df = vacancy_df.sort_values('Clicks', ascending=False)
 
     st.caption(f"Showing {len(vacancy_df):,} vacancies")
-    st.dataframe(vacancy_df, width='stretch', height=600, hide_index=True)
+    st.dataframe(
+        vacancy_df,
+        width='stretch',
+        height=600,
+        hide_index=True,
+        column_config={
+            'Clicks': st.column_config.NumberColumn(format="%,d"),
+            'Applies': st.column_config.NumberColumn(format="%,d"),
+            'Ratio %': st.column_config.NumberColumn(format="%d%%"),
+            'Clicks/Day': st.column_config.NumberColumn(format="%,d"),
+            'Applies/Day': st.column_config.NumberColumn(format="%,d"),
+            'Avg Clicks/Vac (Occ)': st.column_config.NumberColumn(format="%,d"),
+            'Avg Applies/Vac (Occ)': st.column_config.NumberColumn(format="%,d"),
+        },
+    )
 
     csv = vacancy_df.to_csv(index=False).encode('utf-8')
     st.download_button(

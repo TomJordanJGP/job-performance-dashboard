@@ -33,6 +33,19 @@ from views.compare import render_compare
 from views.salary import render_salary
 
 
+@st.cache_data(ttl=14400)
+def _process_raw_data(df_raw):
+    """Apply all enrichment steps to raw data (cached to avoid reprocessing on reruns)."""
+    df = df_raw.copy()
+    df = prepare_enriched_data(df)
+    df = apply_importer_mapping(df)
+    df = parse_upgrades(df)
+    df = parse_dates_in_jobiqo(df)
+    df = add_occupation_column(df)
+    df = process_salary_columns(df)
+    return df
+
+
 def main():
     # === SIDEBAR ===
     with st.sidebar:
@@ -42,14 +55,7 @@ def main():
     # === DATA LOADING (fixed 365 days, no data settings exposed) ===
     with st.spinner("Loading data..."):
         df_raw, daily_totals = load_all_data(days_back=365, sample_size=None)
-
-        df = df_raw.copy()
-        df = prepare_enriched_data(df)
-        df = apply_importer_mapping(df)
-        df = parse_upgrades(df)
-        df = parse_dates_in_jobiqo(df)
-        df = add_occupation_column(df)
-        df = process_salary_columns(df)
+        df = _process_raw_data(df_raw)
 
     # Initialize session state
     for key in ['global_filters', 'comp_left_filters', 'comp_right_filters']:
@@ -64,6 +70,21 @@ def main():
         # Apply filters to session state
         if apply_clicked:
             st.session_state.global_filters = filters
+
+        # Stats glossary
+        st.markdown("---")
+        with st.expander("Understanding the stats", icon="\u2139\ufe0f"):
+            st.markdown(
+                "**Median** \u2014 The middle value when all salaries are "
+                "sorted. Half are above, half below. Less affected by "
+                "extreme outliers than the mean.\n\n"
+                "**Mean (Average)** \u2014 The total of all salaries divided "
+                "by the number of vacancies. Can be pulled up by a few "
+                "very high salaries.\n\n"
+                "**Percentile** \u2014 Shows where a value sits relative to "
+                "the rest. The 75th percentile means 75% of salaries "
+                "are below that figure."
+            )
 
         # Footer
         st.caption(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M')}")

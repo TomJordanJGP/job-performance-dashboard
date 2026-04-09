@@ -175,7 +175,7 @@ def render_dashboard(df, daily_totals=None):
                     'England': JGP_COLORS['primary'],
                     'Scotland': JGP_COLORS['supporting'],
                     'Wales': JGP_COLORS['deep_green'],
-                    'Northern Ireland': '#e5a000',
+                    'Northern Ireland': JGP_COLORS['amber'],
                 }
                 for country in chart_df['Country'].unique():
                     country_data = chart_df[chart_df['Country'] == country]

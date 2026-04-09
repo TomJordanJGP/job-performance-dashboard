@@ -23,7 +23,10 @@ def _get_available_regions(df):
 
 
 def create_sidebar_filters(df, key_prefix='global'):
-    """Create the global filter panel in the sidebar. All filters visible (no expander).
+    """Create the global filter panel in the sidebar.
+
+    Widgets are live (dynamic) so selecting Country updates Region options.
+    Filters only apply to the dashboard when 'Apply Filters' is clicked.
 
     Returns:
         tuple: (filters_dict, apply_clicked_bool)
@@ -68,7 +71,7 @@ def create_sidebar_filters(df, key_prefix='global'):
             key=f'{key_prefix}_company'
         )
 
-    # Country / Region (two linked filters)
+    # Country / Region (two linked filters - dynamic)
     available_regions = _get_available_regions(df)
     if available_regions:
         country_options = get_available_countries(available_regions)
@@ -117,13 +120,37 @@ def create_sidebar_filters(df, key_prefix='global'):
             key=f'{key_prefix}_upgrades'
         )
 
-    # Apply Filters button
-    apply_clicked = st.sidebar.button(
-        "Apply Filters",
-        key=f'{key_prefix}_apply',
-        type="primary",
-        use_container_width=True
-    )
+    # Apply / Clear buttons
+    btn_col1, btn_col2 = st.sidebar.columns(2)
+    with btn_col1:
+        apply_clicked = st.button(
+            "Apply Filters",
+            key=f'{key_prefix}_apply',
+            type="primary",
+            use_container_width=True
+        )
+    with btn_col2:
+        clear_clicked = st.button(
+            "Clear All",
+            key=f'{key_prefix}_clear',
+            use_container_width=True
+        )
+
+    if clear_clicked:
+        # Clear applied filter state
+        st.session_state.pop('global_filters', None)
+        st.session_state.pop('comp_left_filters', None)
+        st.session_state.pop('comp_right_filters', None)
+        # Clear all widget values for this filter set
+        widget_keys = [
+            f'{key_prefix}_date', f'{key_prefix}_importer',
+            f'{key_prefix}_company', f'{key_prefix}_country',
+            f'{key_prefix}_region', f'{key_prefix}_occupation',
+            f'{key_prefix}_title', f'{key_prefix}_upgrades',
+        ]
+        for key in widget_keys:
+            st.session_state.pop(key, None)
+        st.rerun()
 
     return filters, apply_clicked
 
@@ -273,6 +300,6 @@ def apply_filters_to_data(df, filters):
     if filters.get('job_title') and filters['job_title'].strip():
         if 'title' in filtered.columns:
             search_term = filters['job_title'].strip().lower()
-            filtered = filtered[filtered['title'].str.lower().str.contains(search_term, na=False)]
+            filtered = filtered[filtered['title'].str.lower().str.contains(search_term, na=False, regex=False)]
 
     return filtered

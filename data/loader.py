@@ -14,7 +14,6 @@ BQ_TABLE_ID = "dashboard_vacancy_summary"
 BQ_DAILY_TOTALS_TABLE_ID = "dashboard_daily_totals"
 
 SCOPES = [
-    'https://www.googleapis.com/auth/spreadsheets.readonly',
     'https://www.googleapis.com/auth/bigquery',
 ]
 

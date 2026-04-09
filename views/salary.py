@@ -32,7 +32,7 @@ def _competitiveness_color(percentile):
     if percentile >= 60:
         return JGP_COLORS['deep_green']
     elif percentile >= 40:
-        return '#e5a000'  # Amber
+        return JGP_COLORS['amber']
     else:
         return JGP_COLORS['negative']
 
@@ -120,25 +120,27 @@ def render_salary(df):
                     regions.add(r)
     regions = sorted(regions)
 
-    col_salary, col_occ, col_reg = st.columns(3)
-    with col_salary:
-        input_salary = st.number_input(
-            "Salary (annual equivalent)",
-            min_value=0, max_value=500000, value=35000, step=1000,
-            key='salary_checker_input'
-        )
-    with col_occ:
-        selected_occ = st.selectbox(
-            "Occupation",
-            ["All Occupations"] + occupations,
-            key='salary_checker_occ'
-        )
-    with col_reg:
-        selected_reg = st.selectbox(
-            "Region (optional)",
-            ["All Regions"] + regions,
-            key='salary_checker_reg'
-        )
+    with st.form(key='salary_checker_form'):
+        col_salary, col_occ, col_reg = st.columns(3)
+        with col_salary:
+            input_salary = st.number_input(
+                "Salary (annual equivalent)",
+                min_value=0, max_value=500000, value=35000, step=1000,
+                key='salary_checker_input'
+            )
+        with col_occ:
+            selected_occ = st.selectbox(
+                "Occupation",
+                ["All Occupations"] + occupations,
+                key='salary_checker_occ'
+            )
+        with col_reg:
+            selected_reg = st.selectbox(
+                "Region (optional)",
+                ["All Regions"] + regions,
+                key='salary_checker_reg'
+            )
+        st.form_submit_button("Check Salary", type="primary")
 
     # Filter comparison set
     comparison = salary_with_data.copy()
@@ -183,30 +185,48 @@ def render_salary(df):
                 opacity=0.85,
                 name='Salary Distribution',
             ))
-            fig.add_vline(
-                x=input_salary,
-                line_width=3,
-                line_dash="dash",
-                line_color=color,
-                annotation_text=f"Your salary: {_fmt_salary(input_salary)}",
-                annotation_position="top",
-                annotation_font_color=color,
-            )
-            fig.add_vline(
-                x=stats['median'],
-                line_width=2,
-                line_dash="dot",
-                line_color=JGP_COLORS['supporting'],
-                annotation_text=f"Median: {_fmt_salary(stats['median'])}",
-                annotation_position="bottom",
-                annotation_font_color=JGP_COLORS['supporting'],
+
+            # Vertical lines - same solid style, 3 contrasting colours
+            your_color = JGP_COLORS['negative']    # Red
+            median_color = JGP_COLORS['amber']     # Amber
+            mean_color = JGP_COLORS['deep_green']  # Green
+
+            fig.add_vline(x=input_salary, line_width=3, line_color=your_color)
+            fig.add_vline(x=stats['median'], line_width=2, line_color=median_color)
+            fig.add_vline(x=stats['mean'], line_width=2, line_color=mean_color)
+
+            # Legend entries (invisible traces for the vlines)
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None], mode='lines',
+                line=dict(color=your_color, width=3),
+                name=f"Your salary: {_fmt_salary(input_salary)}",
+            ))
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None], mode='lines',
+                line=dict(color=median_color, width=2),
+                name=f"Median: {_fmt_salary(stats['median'])}",
+            ))
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None], mode='lines',
+                line=dict(color=mean_color, width=2),
+                name=f"Mean: {_fmt_salary(stats['mean'])}",
+            ))
+
+            layout_overrides = {**JGP_PLOTLY_TEMPLATE['layout']}
+            layout_overrides['legend'] = dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="left",
+                x=0,
+                font=dict(size=11),
             )
             fig.update_layout(
-                **JGP_PLOTLY_TEMPLATE['layout'],
+                **layout_overrides,
                 xaxis_title="Annual Salary",
                 yaxis_title="Number of Vacancies",
-                showlegend=False,
-                height=350,
+                showlegend=True,
+                height=380,
             )
             st.plotly_chart(fig, use_container_width=True)
 
@@ -305,6 +325,22 @@ def render_salary(df):
 
     with occ_tab1:
         if occ_stats:
+            with st.expander("How to read a box plot", icon="\u2139\ufe0f"):
+                st.markdown(
+                    "```\n"
+                    "  \u25c4\u2500\u2500\u2500\u252c\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u256b\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u252c\u2500\u2500\u2500\u25ba   \u25c6\n"
+                    "       \u2502   25th   \u2551  75th   \u2502          Outlier\n"
+                    "       \u2502         Median   \u2502\n"
+                    "```\n\n"
+                    "| Element | Meaning |\n"
+                    "|---|---|\n"
+                    "| **Box** (shaded area) | Middle 50% of salaries (25th to 75th percentile) |\n"
+                    "| **Vertical line** inside box | **Median** \u2014 the midpoint salary |\n"
+                    "| **Diamond / dashed line** | **Mean** (average) salary |\n"
+                    "| **Whiskers** (lines extending from box) | Range of typical values (up to 1.5\u00d7 the box width) |\n"
+                    "| **Dots** beyond whiskers | **Outliers** \u2014 unusually high or low salaries |"
+                )
+
             # Top 20 occupations by count for box plot
             top_occs = sorted(occ_stats, key=lambda x: x['Count'], reverse=True)[:20]
             top_occ_names = [o['Occupation'] for o in top_occs]
@@ -327,7 +363,7 @@ def render_salary(df):
                 **JGP_PLOTLY_TEMPLATE['layout'],
                 xaxis_title="Annual Salary",
                 showlegend=False,
-                height=max(400, len(occ_order) * 35),
+                height=min(1200, max(400, len(occ_order) * 35)),
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -411,7 +447,7 @@ def render_salary(df):
                 xaxis_title="Median Annual Salary",
                 yaxis_title="",
                 showlegend=False,
-                height=max(400, len(hm_df) * 35),
+                height=min(1200, max(400, len(hm_df) * 35)),
                 coloraxis_showscale=False,
             )
             fig.update_traces(textposition='outside')
@@ -523,7 +559,7 @@ def render_salary(df):
                     barmode='stack',
                     xaxis_title="Number of Vacancies",
                     yaxis_title="",
-                    height=max(400, len(pivot) * 30),
+                    height=min(1200, max(400, len(pivot) * 30)),
                 )
                 st.plotly_chart(fig, use_container_width=True)
     else:

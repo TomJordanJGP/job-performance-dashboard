@@ -18,6 +18,7 @@ JGP_COLORS = {
     'positive': '#2e4500',       # Deep Green for positive deltas
     'negative': '#c0392b',       # Red for negative deltas
     'neutral': '#9c67d3',        # Supporting Purple for neutral
+    'amber': '#e5a000',          # Warm Amber (Northern Ireland, contrast)
 }
 
 # Plotly chart template with JGP branding
@@ -30,7 +31,7 @@ JGP_PLOTLY_TEMPLATE = dict(
             JGP_COLORS['primary'],
             JGP_COLORS['deep_green'],
             JGP_COLORS['supporting'],
-            '#e5a000',  # Warm amber for contrast
+            JGP_COLORS['amber'],
             JGP_COLORS['light_purple'],
             JGP_COLORS['deep_blue'],
         ],

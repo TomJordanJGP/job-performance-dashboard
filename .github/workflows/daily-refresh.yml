@@ -22,7 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install google-cloud-bigquery google-auth pyarrow db-dtypes requests python-dateutil pandas
+          pip install google-cloud-bigquery google-auth pyarrow db-dtypes requests python-dateutil pandas gspread google-auth-oauthlib
 
       - name: Create service account file
         run: |

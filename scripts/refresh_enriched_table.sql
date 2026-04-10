@@ -99,15 +99,18 @@ SELECT
   metadata.salary_unit,
   metadata.last_updated as metadata_last_updated,
 
-  -- Location regions: HQ is primary, vacancy_locations is fallback
-  -- Normalised via region_canonical to ensure consistent naming
+  -- Location regions: 4-tier fallback, normalised via region_canonical.
+  -- Tier 1: canonical normalisation of best available region string
+  -- Tier 2: HQ region from job_metadata (populated by enrich_from_hq.sql)
+  -- Tier 3: vacancy location region from location_lookup
+  -- Tier 4: direct HQ lookup for GA4-only vacancies not in job_metadata
   COALESCE(
     rc_all.canonical_region,
-    COALESCE(metadata.hq_region, vloc.uk_regions_all)
+    COALESCE(metadata.hq_region, vloc.uk_regions_all, hq_direct.region)
   ) as uk_regions_all,
   COALESCE(
     rc_primary.canonical_region,
-    COALESCE(metadata.hq_region, vloc.primary_uk_region)
+    COALESCE(metadata.hq_region, vloc.primary_uk_region, hq_direct.region)
   ) as primary_uk_region,
   metadata.hq_region,
   metadata.hq_county,
@@ -130,12 +133,21 @@ LEFT JOIN (
   GROUP BY entity_id
 ) AS vloc
   ON CAST(events.entity_id AS STRING) = vloc.entity_id
+-- Tier 4: Direct HQ lookup for vacancies where tiers 1-3 all return NULL.
+-- Catches GA4-only vacancies not in job_metadata (so enrich_from_hq.sql never ran).
+-- Matches on org_id first, falls back to org_name.
+-- Placed before canonical JOINs so hq_direct.region is available in COALESCE.
+LEFT JOIN `site-monitoring-421401.job_data_export.client_hq_addresses` AS hq_direct
+  ON (
+    SAFE_CAST(events.organization_id AS INT64) = hq_direct.organisation_id
+    OR LOWER(TRIM(events.organization_name)) = LOWER(TRIM(hq_direct.organisation_name))
+  )
 -- Normalise uk_regions_all via canonical lookup
 LEFT JOIN `site-monitoring-421401.job_data_export.region_canonical` AS rc_all
-  ON LOWER(COALESCE(metadata.hq_region, vloc.uk_regions_all)) = rc_all.variant
+  ON LOWER(COALESCE(metadata.hq_region, vloc.uk_regions_all, hq_direct.region)) = rc_all.variant
 -- Normalise primary_uk_region via canonical lookup
 LEFT JOIN `site-monitoring-421401.job_data_export.region_canonical` AS rc_primary
-  ON LOWER(COALESCE(metadata.hq_region, vloc.primary_uk_region)) = rc_primary.variant
+  ON LOWER(COALESCE(metadata.hq_region, vloc.primary_uk_region, hq_direct.region)) = rc_primary.variant
 
 UNION ALL
 
@@ -183,14 +195,14 @@ SELECT
   m.salary_unit,
   m.last_updated as metadata_last_updated,
 
-  -- Location regions (same logic as Part 1)
+  -- Location regions (same 4-tier logic as Part 1)
   COALESCE(
     rc_all_m.canonical_region,
-    COALESCE(m.hq_region, vloc_m.uk_regions_all)
+    COALESCE(m.hq_region, vloc_m.uk_regions_all, hq_direct_m.region)
   ) as uk_regions_all,
   COALESCE(
     rc_primary_m.canonical_region,
-    COALESCE(m.hq_region, vloc_m.primary_uk_region)
+    COALESCE(m.hq_region, vloc_m.primary_uk_region, hq_direct_m.region)
   ) as primary_uk_region,
   m.hq_region,
   m.hq_county,
@@ -216,8 +228,14 @@ LEFT JOIN (
   GROUP BY entity_id
 ) AS vloc_m
   ON m.entity_id = vloc_m.entity_id
+-- Tier 4: Direct HQ lookup as final fallback (same as Part 1)
+LEFT JOIN `site-monitoring-421401.job_data_export.client_hq_addresses` AS hq_direct_m
+  ON (
+    SAFE_CAST(REGEXP_REPLACE(m.organization_id, r'\.0$', '') AS INT64) = hq_direct_m.organisation_id
+    OR LOWER(TRIM(m.organization_profile_name)) = LOWER(TRIM(hq_direct_m.organisation_name))
+  )
 LEFT JOIN `site-monitoring-421401.job_data_export.region_canonical` AS rc_all_m
-  ON LOWER(COALESCE(m.hq_region, vloc_m.uk_regions_all)) = rc_all_m.variant
+  ON LOWER(COALESCE(m.hq_region, vloc_m.uk_regions_all, hq_direct_m.region)) = rc_all_m.variant
 LEFT JOIN `site-monitoring-421401.job_data_export.region_canonical` AS rc_primary_m
-  ON LOWER(COALESCE(m.hq_region, vloc_m.primary_uk_region)) = rc_primary_m.variant
+  ON LOWER(COALESCE(m.hq_region, vloc_m.primary_uk_region, hq_direct_m.region)) = rc_primary_m.variant
 WHERE has_events.entity_id_str IS NULL;

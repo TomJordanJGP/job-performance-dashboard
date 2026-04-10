@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Daily refresh script for the Job Performance Dashboard.
 
-Runs seven steps in sequence:
+Runs nine steps in sequence:
 1. Incremental sync: Append new events from the source table
 2. Sync feeds: Update job_metadata from XML feeds
-2.1. Refresh vacancy_locations: Rebuild exploded location table from job_metadata
+2.1. Sync location additions: MERGE approved locations from review Sheet into lookup
+2.2. Refresh vacancy_locations: Rebuild exploded location table from job_metadata
 2.5. Enrich from HQ: Backfill HQ region/county on job_metadata
-3. Rebuild enriched table: Re-join with metadata, locations, and region canonical
+3. Rebuild enriched table: Re-join with metadata, locations, region canonical + Tier 4 HQ
 4. Rebuild aggregated tables: Pre-compute vacancy summary and daily totals
 5. Refresh reconciliation: Rebuild missing_external_ids table
+6. Export unmatched towns: Detect new unmatched towns and append to review Sheet
 
 Can be run manually, via cron, or as a GitHub Action.
 
@@ -38,7 +40,8 @@ def get_client():
         sys.exit(1)
 
     creds = Credentials.from_service_account_file(sa_path, scopes=[
-        'https://www.googleapis.com/auth/bigquery'
+        'https://www.googleapis.com/auth/bigquery',
+        'https://www.googleapis.com/auth/drive.readonly',
     ])
     return bigquery.Client(credentials=creds, project='site-monitoring-421401')
 
@@ -152,7 +155,14 @@ def main():
                     print(f"  STDERR: {line}")
             print("  Continuing with existing feed data...")
 
-    # Step 2.1: Refresh vacancy_locations from job_metadata.locations
+    # Step 2.1: Sync approved location additions from Google Sheet → location_lookup.
+    # Must run BEFORE vacancy_locations refresh so new lookup entries are available.
+    ok = run_sql_file(client, 'sync_location_additions.sql',
+                      'Sync approved location additions from Sheet', args.dry_run)
+    if not ok:
+        print("  WARNING: Location additions sync failed. Continuing with existing lookup data...")
+
+    # Step 2.2: Refresh vacancy_locations from job_metadata.locations
     ok = run_sql_file(client, 'refresh_vacancy_locations.sql',
                       'Rebuild vacancy_locations from job_metadata', args.dry_run)
     if not ok:
@@ -183,6 +193,30 @@ def main():
                       'Refresh reconciliation tables', args.dry_run)
     if not ok:
         print("  WARNING: Reconciliation refresh failed. Non-critical, continuing...")
+
+    # Step 6: Detect and append new unmatched towns to review Sheet.
+    # Runs after vacancy_locations refresh so we have up-to-date unmatched data.
+    print(f"\n{'='*60}")
+    print("Step: Detect and export unmatched towns to review Sheet")
+    export_script = os.path.join(script_dir, 'export_unmatched_to_sheet.py')
+    if args.dry_run:
+        print("  [DRY RUN] Would run export_unmatched_to_sheet.py")
+    elif os.path.exists(export_script):
+        result = subprocess.run(
+            [sys.executable, export_script],
+            capture_output=True, text=True
+        )
+        if result.stdout.strip():
+            for line in result.stdout.strip().split('\n'):
+                print(f"  {line}")
+        if result.returncode != 0:
+            print(f"  WARNING: Unmatched town export failed (exit code {result.returncode})")
+            if result.stderr.strip():
+                for line in result.stderr.strip().split('\n'):
+                    print(f"  STDERR: {line}")
+            print("  Non-critical — continuing...")
+    else:
+        print(f"  SKIPPED: {export_script} not found")
 
     # Verify
     if not args.dry_run:

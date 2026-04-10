@@ -11,8 +11,8 @@ Runs steps in sequence:
 3.    Rebuild enriched table: Re-join with metadata, locations, region canonical + Tier 4 HQ
 4.    Rebuild aggregated tables: Pre-compute vacancy summary and daily totals
 5.    Refresh reconciliation: Rebuild missing_external_ids table
-5.5   Export missing IDs: Detect new missing external IDs and append to review Sheet
-6.    Export unmatched towns: Detect new unmatched towns and append to review Sheet
+5.5   Export missing IDs: Overwrite Missing IDs Sheet tab with current outstanding vacancies
+6.    Export unmatched towns: Overwrite Review Sheet tab with current unmatched towns
 
 Can be run manually, via cron, or as a GitHub Action.
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Detect unmatched towns in vacancy_locations and append new ones to Google Sheets.
+"""Detect unmatched towns in vacancy_locations and write to Google Sheets.
 
 Queries BigQuery for vacancy_locations rows where uk_region is NULL (town not in
-location_lookup). Compares against the existing review Sheet and appends only NEW
-unmatched towns (append-only — never overwrites existing rows).
+location_lookup). Overwrites the "Review" tab each run so the Sheet always
+reflects the current outstanding unmatched towns.
 
 Run as part of daily_refresh.py (after refresh_vacancy_locations.sql).
 
@@ -77,22 +77,10 @@ def get_unmatched_from_bq(bq_client):
     return bq_client.query(sql).to_dataframe()
 
 
-def get_existing_towns_from_sheet(gc):
-    """Read existing town_city values from the review Sheet."""
-    try:
-        spreadsheet = gc.open_by_key(SHEET_ID)
-        worksheet = spreadsheet.worksheet(SHEET_NAME)
-        records = worksheet.get_all_records()
-        if not records:
-            return set()
-        df = pd.DataFrame(records)
-        return set(df['town_city'].str.strip().str.upper())
-    except gspread.exceptions.SpreadsheetNotFound:
-        print(f"  WARNING: Sheet {SHEET_ID} not found. Will create if --create-sheet is passed.")
-        return set()
-    except gspread.exceptions.WorksheetNotFound:
-        print(f"  WARNING: Worksheet '{SHEET_NAME}' not found in sheet.")
-        return set()
+HEADER_ROW = [
+    'town_city', 'country_region', 'country_code', 'vacancy_count',
+    'suggested_region', 'suggested_county', 'confidence', 'source', 'done',
+]
 
 
 def auto_suggest_region(town, country_region):
@@ -112,17 +100,31 @@ def auto_suggest_region(town, country_region):
     return region, confidence, source
 
 
-def append_to_sheet(gc, new_rows_df):
-    """Append new unmatched towns to the review Sheet."""
+def get_or_create_worksheet(gc):
+    """Get the Review worksheet, creating it if it doesn't exist."""
     spreadsheet = gc.open_by_key(SHEET_ID)
-    worksheet = spreadsheet.worksheet(SHEET_NAME)
+    try:
+        return spreadsheet.worksheet(SHEET_NAME)
+    except gspread.exceptions.WorksheetNotFound:
+        print(f"  Creating '{SHEET_NAME}' tab...")
+        worksheet = spreadsheet.add_worksheet(
+            title=SHEET_NAME, rows=1, cols=len(HEADER_ROW),
+        )
+        print(f"  Created with {len(HEADER_ROW)} columns.")
+        print(f"  Tab gid: {worksheet.id}")
+        return worksheet
 
-    rows_to_append = []
-    for _, row in new_rows_df.iterrows():
+
+def overwrite_sheet(gc, data_df):
+    """Clear and rewrite the Review tab with current unmatched towns."""
+    worksheet = get_or_create_worksheet(gc)
+
+    rows = [HEADER_ROW]
+    for _, row in data_df.iterrows():
         region, confidence, source = auto_suggest_region(
             row['town_city'], row['country_region']
         )
-        rows_to_append.append([
+        rows.append([
             row['town_city'],
             row['country_region'] if pd.notna(row['country_region']) else '',
             row['country_code'],
@@ -134,10 +136,10 @@ def append_to_sheet(gc, new_rows_df):
             '',  # done
         ])
 
-    if rows_to_append:
-        worksheet.append_rows(rows_to_append, value_input_option='USER_ENTERED')
+    worksheet.clear()
+    worksheet.update(range_name='A1', values=rows, value_input_option='USER_ENTERED')
 
-    return len(rows_to_append)
+    return len(rows) - 1  # exclude header
 
 
 def main():
@@ -145,7 +147,7 @@ def main():
         description='Detect and export unmatched towns to Google Sheets'
     )
     parser.add_argument('--dry-run', action='store_true',
-                        help='Show what would be appended without writing')
+                        help='Show what would be written without modifying the Sheet')
     args = parser.parse_args()
 
     if not os.path.exists(SA_PATH):
@@ -161,35 +163,29 @@ def main():
     unmatched = get_unmatched_from_bq(bq_client)
     print(f"  Found {len(unmatched)} unmatched town entries in vacancy_locations")
 
-    if unmatched.empty:
-        print("  No unmatched towns found. Nothing to do.")
-        return
-
-    print("Reading existing review Sheet...")
     gc = get_sheets_client()
-    existing_towns = get_existing_towns_from_sheet(gc)
-    print(f"  {len(existing_towns)} towns already in review Sheet")
 
-    # Filter to only new towns (not already in the Sheet)
-    new_mask = ~unmatched['town_city'].str.strip().str.upper().isin(existing_towns)
-    new_towns = unmatched[new_mask]
-    print(f"  {len(new_towns)} NEW unmatched towns to append")
-
-    if new_towns.empty:
-        print("  All unmatched towns already in review Sheet. Nothing to append.")
+    if unmatched.empty:
+        print("  No unmatched towns found. Clearing Sheet to header-only.")
+        if not args.dry_run:
+            worksheet = get_or_create_worksheet(gc)
+            worksheet.clear()
+            worksheet.update(range_name='A1', values=[HEADER_ROW],
+                             value_input_option='USER_ENTERED')
+            print("  Sheet cleared.")
         return
 
     if args.dry_run:
-        print("\n  [DRY RUN] Would append:")
-        print(new_towns[['town_city', 'country_region', 'vacancy_count']].head(20).to_string())
-        if len(new_towns) > 20:
-            print(f"  ... and {len(new_towns) - 20} more")
+        print(f"\n  [DRY RUN] Would write {len(unmatched)} rows:")
+        print(unmatched[['town_city', 'country_region', 'vacancy_count']].head(20).to_string())
+        if len(unmatched) > 20:
+            print(f"  ... and {len(unmatched) - 20} more")
         return
 
-    print("Appending to review Sheet...")
-    count = append_to_sheet(gc, new_towns)
-    print(f"  Appended {count} new rows to review Sheet")
-    print(f"  Total vacancies covered: {new_towns['vacancy_count'].sum()}")
+    print("Writing to review Sheet (overwrite)...")
+    count = overwrite_sheet(gc, unmatched)
+    print(f"  Wrote {count} rows to review Sheet")
+    print(f"  Total vacancies covered: {unmatched['vacancy_count'].sum()}")
 
 
 if __name__ == '__main__':

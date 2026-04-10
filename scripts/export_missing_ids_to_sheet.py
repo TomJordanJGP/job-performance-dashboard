@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Detect vacancies missing from job_metadata and append to Google Sheets.
+"""Detect vacancies missing from job_metadata and write to Google Sheets.
 
 Queries the missing_external_ids reconciliation table (pre-computed by
 create_reconciliation_tables.sql) for GA4 vacancies with no matching
-job_metadata row. Compares against the existing "Missing IDs" review Sheet
-and appends only NEW entity_ids (append-only — never overwrites existing rows).
+job_metadata row. Overwrites the "Missing IDs" tab each run so the Sheet
+always reflects the current outstanding items.
 
 The user then XLOOKUPs from a Jobiqo export to fill in metadata fields
 (external_id, salary, occupation, etc.) and marks done=TRUE. The pipeline
-MERGEs approved rows into job_metadata via sync_external_id_additions.sql.
+MERGEs approved rows into job_metadata via sync_external_id_additions.sql
+BEFORE this export runs, so done=TRUE rows are already synced.
 
 Run as part of daily_refresh.py (after create_reconciliation_tables.sql).
 
@@ -90,49 +91,28 @@ def get_missing_from_bq(bq_client):
     return bq_client.query(sql).to_dataframe()
 
 
-def get_existing_ids_from_sheet(gc):
-    """Read existing entity_id values from the Missing IDs Sheet tab."""
-    try:
-        spreadsheet = gc.open_by_key(SHEET_ID)
-        worksheet = spreadsheet.worksheet(SHEET_NAME)
-        records = worksheet.get_all_records()
-        if not records:
-            return set()
-        df = pd.DataFrame(records)
-        return set(df['entity_id'].astype(str).str.strip())
-    except gspread.exceptions.WorksheetNotFound:
-        return None  # signals that tab needs to be created
-    except gspread.exceptions.SpreadsheetNotFound:
-        print(f"  ERROR: Sheet {SHEET_ID} not found.")
-        sys.exit(1)
-
-
-def create_tab_if_needed(gc):
-    """Create the Missing IDs tab with headers if it doesn't exist."""
+def get_or_create_worksheet(gc):
+    """Get the Missing IDs worksheet, creating it if it doesn't exist."""
     spreadsheet = gc.open_by_key(SHEET_ID)
     try:
-        worksheet = spreadsheet.worksheet(SHEET_NAME)
-        return worksheet
+        return spreadsheet.worksheet(SHEET_NAME)
     except gspread.exceptions.WorksheetNotFound:
         print(f"  Creating '{SHEET_NAME}' tab...")
         worksheet = spreadsheet.add_worksheet(
             title=SHEET_NAME, rows=1, cols=len(HEADER_ROW),
         )
-        worksheet.append_row(HEADER_ROW, value_input_option='USER_ENTERED')
         print(f"  Created with {len(HEADER_ROW)} columns.")
-        # Print the gid so it can be used in sync_external_id_additions.sql.
         print(f"  Tab gid: {worksheet.id}")
         return worksheet
 
 
-def append_to_sheet(gc, new_rows_df):
-    """Append new missing-ID rows to the Sheet."""
-    spreadsheet = gc.open_by_key(SHEET_ID)
-    worksheet = spreadsheet.worksheet(SHEET_NAME)
+def overwrite_sheet(gc, data_df):
+    """Clear and rewrite the Missing IDs tab with current outstanding items."""
+    worksheet = get_or_create_worksheet(gc)
 
-    rows_to_append = []
-    for _, row in new_rows_df.iterrows():
-        rows_to_append.append([
+    rows = [HEADER_ROW]
+    for _, row in data_df.iterrows():
+        rows.append([
             str(row['entity_id']),
             row['title'] if pd.notna(row['title']) else '',
             row['organization_name'] if pd.notna(row['organization_name']) else '',
@@ -143,10 +123,10 @@ def append_to_sheet(gc, new_rows_df):
             '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
         ])
 
-    if rows_to_append:
-        worksheet.append_rows(rows_to_append, value_input_option='USER_ENTERED')
+    worksheet.clear()
+    worksheet.update(range_name='A1', values=rows, value_input_option='USER_ENTERED')
 
-    return len(rows_to_append)
+    return len(rows) - 1  # exclude header
 
 
 def main():
@@ -155,7 +135,7 @@ def main():
     )
     parser.add_argument(
         '--dry-run', action='store_true',
-        help='Show what would be appended without writing',
+        help='Show what would be written without modifying the Sheet',
     )
     args = parser.parse_args()
 
@@ -168,43 +148,30 @@ def main():
     missing = get_missing_from_bq(bq_client)
     print(f"  Found {len(missing)} vacancies with no job_metadata row")
 
-    if missing.empty:
-        print("  No missing vacancies found. Nothing to do.")
-        return
-
-    print("Reading existing Missing IDs Sheet...")
     gc = get_sheets_client()
-    existing_ids = get_existing_ids_from_sheet(gc)
 
-    if existing_ids is None:
-        # Tab doesn't exist yet — create it.
-        create_tab_if_needed(gc)
-        existing_ids = set()
-        print(f"  0 entity_ids already in Sheet (new tab)")
-    else:
-        print(f"  {len(existing_ids)} entity_ids already in Sheet")
-
-    # Filter to only new entity_ids not already in the Sheet.
-    new_mask = ~missing['entity_id'].astype(str).str.strip().isin(existing_ids)
-    new_rows = missing[new_mask]
-    print(f"  {len(new_rows)} NEW missing vacancies to append")
-
-    if new_rows.empty:
-        print("  All missing vacancies already in Sheet. Nothing to append.")
+    if missing.empty:
+        print("  No missing vacancies found. Clearing Sheet to header-only.")
+        if not args.dry_run:
+            worksheet = get_or_create_worksheet(gc)
+            worksheet.clear()
+            worksheet.update(range_name='A1', values=[HEADER_ROW],
+                             value_input_option='USER_ENTERED')
+            print("  Sheet cleared.")
         return
 
     if args.dry_run:
-        print("\n  [DRY RUN] Would append:")
+        print(f"\n  [DRY RUN] Would write {len(missing)} rows:")
         display_cols = ['entity_id', 'organization_name', 'event_count']
-        print(new_rows[display_cols].head(20).to_string())
-        if len(new_rows) > 20:
-            print(f"  ... and {len(new_rows) - 20} more")
+        print(missing[display_cols].head(20).to_string())
+        if len(missing) > 20:
+            print(f"  ... and {len(missing) - 20} more")
         return
 
-    print("Appending to Missing IDs Sheet...")
-    count = append_to_sheet(gc, new_rows)
-    print(f"  Appended {count} new rows")
-    print(f"  Total GA4 events covered: {new_rows['event_count'].sum():,}")
+    print("Writing to Missing IDs Sheet (overwrite)...")
+    count = overwrite_sheet(gc, missing)
+    print(f"  Wrote {count} rows")
+    print(f"  Total GA4 events covered: {missing['event_count'].sum():,}")
 
 
 if __name__ == '__main__':

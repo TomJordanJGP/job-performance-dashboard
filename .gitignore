@@ -41,6 +41,11 @@ location_lookup_with_regions.csv
 # Logs
 logs-*.txt
 
+# Claude Code context files (local only, not for repo)
+CLAUDE.md
+lessons.md
+tasks/
+
 # Temp/debug files
 Upload location
 check_table_exists.py

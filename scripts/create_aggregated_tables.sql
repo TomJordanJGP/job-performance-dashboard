@@ -60,23 +60,90 @@ GROUP BY entity_id_str;
 
 
 -- Table 2: Daily totals (one row per day)
--- Used for: trend line charts. Lightweight — ~365 rows per year.
--- active_vacancies = vacancies live on the site that day (published and not yet expired),
--- derived from the vacancy summary's start_date/end_date rather than GA4 events.
--- Clicks/applies still come from GA4 events only.
+-- Used for: trend line charts (dashboard) and SEO pulse (weekly rollup).
+-- Combines GA4 engagement (clicks/applies), GSC search visibility (impressions,
+-- avg position, rich results), and live vacancy counts from metadata dates.
+-- GSC data comes from the jobsgopublic project's Search Console BigQuery exports.
+-- Note: GSC data has a 2-3 day lag — recent dates will show 0 for GSC metrics.
 CREATE OR REPLACE TABLE `site-monitoring-421401.job_data_export.dashboard_daily_totals`
 PARTITION BY event_date
 AS
 WITH
--- Clicks and applies from GA4 events per day
+-- GA4 clicks and applies per day, split by site
 daily_events AS (
   SELECT
     event_date_parsed AS event_date,
     COUNTIF(event_name = 'job_visit') AS clicks,
-    COUNTIF(event_name = 'job_apply_start') AS applies
+    COUNTIF(event_name = 'job_visit' AND site = 'Jobs Go Public') AS clicks_jgp,
+    COUNTIF(event_name = 'job_visit' AND site = 'LG Jobs') AS clicks_lg,
+    COUNTIF(event_name = 'job_apply_start') AS applies,
+    COUNTIF(event_name = 'job_apply_start' AND site = 'Jobs Go Public') AS applies_jgp,
+    COUNTIF(event_name = 'job_apply_start' AND site = 'LG Jobs') AS applies_lg
   FROM `site-monitoring-421401.job_data_export.job_performance_enriched`
   WHERE event_name IN ('job_visit', 'job_apply_start')
   GROUP BY event_date_parsed
+),
+-- GSC site-level metrics per day (impressions, clicks, position — total + GB only)
+gsc_site_daily AS (
+  SELECT
+    COALESCE(jgp.data_date, lg.data_date) AS event_date,
+    COALESCE(jgp.impressions, 0) AS impressions_jgp,
+    COALESCE(lg.impressions, 0) AS impressions_lg,
+    COALESCE(jgp.gb_impressions, 0) AS gb_impressions_jgp,
+    COALESCE(lg.gb_impressions, 0) AS gb_impressions_lg,
+    COALESCE(jgp.clicks, 0) AS gsc_clicks_jgp,
+    COALESCE(lg.clicks, 0) AS gsc_clicks_lg,
+    COALESCE(jgp.gb_clicks, 0) AS gb_gsc_clicks_jgp,
+    COALESCE(lg.gb_clicks, 0) AS gb_gsc_clicks_lg,
+    COALESCE(jgp.sum_pos, 0) AS sum_position_jgp,
+    COALESCE(lg.sum_pos, 0) AS sum_position_lg
+  FROM (
+    SELECT
+      data_date,
+      SUM(impressions) AS impressions,
+      SUM(IF(country = 'gbr', impressions, 0)) AS gb_impressions,
+      SUM(clicks) AS clicks,
+      SUM(IF(country = 'gbr', clicks, 0)) AS gb_clicks,
+      SUM(sum_top_position) AS sum_pos
+    FROM `jobsgopublic.searchconsole_jobsgopublic.searchdata_site_impression`
+    GROUP BY data_date
+  ) jgp
+  FULL OUTER JOIN (
+    SELECT
+      data_date,
+      SUM(impressions) AS impressions,
+      SUM(IF(country = 'gbr', impressions, 0)) AS gb_impressions,
+      SUM(clicks) AS clicks,
+      SUM(IF(country = 'gbr', clicks, 0)) AS gb_clicks,
+      SUM(sum_top_position) AS sum_pos
+    FROM `jobsgopublic.searchconsole_lgjobs.searchdata_site_impression`
+    GROUP BY data_date
+  ) lg ON jgp.data_date = lg.data_date
+),
+-- GSC URL-level rich result counts per day (job listing + job detail appearances)
+gsc_rich_daily AS (
+  SELECT
+    COALESCE(jgp.data_date, lg.data_date) AS event_date,
+    COALESCE(jgp.job_listing_rich, 0) AS job_listing_rich_jgp,
+    COALESCE(lg.job_listing_rich, 0) AS job_listing_rich_lg,
+    COALESCE(jgp.job_detail_rich, 0) AS job_detail_rich_jgp,
+    COALESCE(lg.job_detail_rich, 0) AS job_detail_rich_lg
+  FROM (
+    SELECT
+      data_date,
+      SUM(IF(is_job_listing, impressions, 0)) AS job_listing_rich,
+      SUM(IF(is_job_details, impressions, 0)) AS job_detail_rich
+    FROM `jobsgopublic.searchconsole_jobsgopublic.searchdata_url_impression`
+    GROUP BY data_date
+  ) jgp
+  FULL OUTER JOIN (
+    SELECT
+      data_date,
+      SUM(IF(is_job_listing, impressions, 0)) AS job_listing_rich,
+      SUM(IF(is_job_details, impressions, 0)) AS job_detail_rich
+    FROM `jobsgopublic.searchconsole_lgjobs.searchdata_url_impression`
+    GROUP BY data_date
+  ) lg ON jgp.data_date = lg.data_date
 ),
 -- Date spine: one row for every day from earliest event to today
 date_spine AS (
@@ -102,14 +169,43 @@ daily_active AS (
 )
 SELECT
   da.event_date,
+  -- GSC search impressions (total + per site + GB-only)
+  COALESCE(gs.impressions_jgp, 0) + COALESCE(gs.impressions_lg, 0) AS impressions,
+  COALESCE(gs.impressions_jgp, 0) AS impressions_jgp,
+  COALESCE(gs.impressions_lg, 0) AS impressions_lg,
+  COALESCE(gs.gb_impressions_jgp, 0) AS gb_impressions_jgp,
+  COALESCE(gs.gb_impressions_lg, 0) AS gb_impressions_lg,
+  -- GSC search clicks (total + per site + GB-only)
+  COALESCE(gs.gsc_clicks_jgp, 0) + COALESCE(gs.gsc_clicks_lg, 0) AS gsc_clicks,
+  COALESCE(gs.gsc_clicks_jgp, 0) AS gsc_clicks_jgp,
+  COALESCE(gs.gsc_clicks_lg, 0) AS gsc_clicks_lg,
+  COALESCE(gs.gb_gsc_clicks_jgp, 0) AS gb_gsc_clicks_jgp,
+  COALESCE(gs.gb_gsc_clicks_lg, 0) AS gb_gsc_clicks_lg,
+  -- GSC avg position (daily display) + raw sum_position (for weighted weekly rollup)
+  ROUND(SAFE_DIVIDE(gs.sum_position_jgp, gs.impressions_jgp), 1) AS avg_position_jgp,
+  ROUND(SAFE_DIVIDE(gs.sum_position_lg, gs.impressions_lg), 1) AS avg_position_lg,
+  COALESCE(gs.sum_position_jgp, 0) AS sum_position_jgp,
+  COALESCE(gs.sum_position_lg, 0) AS sum_position_lg,
+  -- GSC rich result impressions
+  COALESCE(gr.job_listing_rich_jgp, 0) AS job_listing_rich_jgp,
+  COALESCE(gr.job_listing_rich_lg, 0) AS job_listing_rich_lg,
+  COALESCE(gr.job_detail_rich_jgp, 0) AS job_detail_rich_jgp,
+  COALESCE(gr.job_detail_rich_lg, 0) AS job_detail_rich_lg,
+  -- GA4 clicks (job_visit) + applies (job_apply_start)
   COALESCE(de.clicks, 0) AS clicks,
+  COALESCE(de.clicks_jgp, 0) AS clicks_jgp,
+  COALESCE(de.clicks_lg, 0) AS clicks_lg,
   COALESCE(de.applies, 0) AS applies,
+  COALESCE(de.applies_jgp, 0) AS applies_jgp,
+  COALESCE(de.applies_lg, 0) AS applies_lg,
+  -- Live vacancies (from metadata start_date/end_date)
   da.active_vacancies,
   da.active_jgp,
   da.active_lg
 FROM daily_active da
-LEFT JOIN daily_events de
-  ON da.event_date = de.event_date;
+LEFT JOIN daily_events de ON da.event_date = de.event_date
+LEFT JOIN gsc_site_daily gs ON da.event_date = gs.event_date
+LEFT JOIN gsc_rich_daily gr ON da.event_date = gr.event_date;
 
 
 -- Table 3: Per-vacancy media source breakdown (one row per vacancy + source combo)
@@ -132,3 +228,64 @@ SELECT
   COUNTIF(event_name = 'job_apply_start') as applies
 FROM enriched
 GROUP BY entity_id_str, importer_ID, source, medium, campaign;
+
+
+-- Table 4: Weekly live vacancies (one row per ISO week)
+-- Used for: SEO pulse week-over-week comparisons and dashboard weekly view.
+-- Aggregated from dashboard_daily_totals so metrics stay consistent.
+-- Avg position is a weighted average (sum_position / impressions), not AVG of daily averages.
+CREATE OR REPLACE TABLE `site-monitoring-421401.job_data_export.weekly_live_vacancies`
+PARTITION BY week_start
+AS
+SELECT
+  DATE_TRUNC(event_date, ISOWEEK) AS week_start,
+  -- GSC search impressions
+  SUM(impressions) AS impressions,
+  SUM(impressions_jgp) AS impressions_jgp,
+  SUM(impressions_lg) AS impressions_lg,
+  SUM(gb_impressions_jgp) AS gb_impressions_jgp,
+  SUM(gb_impressions_lg) AS gb_impressions_lg,
+  -- GSC search clicks
+  SUM(gsc_clicks) AS gsc_clicks,
+  SUM(gsc_clicks_jgp) AS gsc_clicks_jgp,
+  SUM(gsc_clicks_lg) AS gsc_clicks_lg,
+  SUM(gb_gsc_clicks_jgp) AS gb_gsc_clicks_jgp,
+  SUM(gb_gsc_clicks_lg) AS gb_gsc_clicks_lg,
+  -- GSC avg position (weighted average across the week)
+  ROUND(SAFE_DIVIDE(SUM(sum_position_jgp), SUM(impressions_jgp)), 1) AS avg_position_jgp,
+  ROUND(SAFE_DIVIDE(SUM(sum_position_lg), SUM(impressions_lg)), 1) AS avg_position_lg,
+  -- GSC rich results
+  SUM(job_listing_rich_jgp) AS job_listing_rich_jgp,
+  SUM(job_listing_rich_lg) AS job_listing_rich_lg,
+  SUM(job_detail_rich_jgp) AS job_detail_rich_jgp,
+  SUM(job_detail_rich_lg) AS job_detail_rich_lg,
+  -- GA4 clicks + applies
+  SUM(clicks) AS clicks,
+  SUM(clicks_jgp) AS clicks_jgp,
+  SUM(clicks_lg) AS clicks_lg,
+  SUM(applies) AS applies,
+  SUM(applies_jgp) AS applies_jgp,
+  SUM(applies_lg) AS applies_lg,
+  -- Live vacancies (daily average across the week)
+  CAST(ROUND(AVG(active_vacancies)) AS INT64) AS active_vacancies,
+  CAST(ROUND(AVG(active_jgp)) AS INT64) AS active_jgp,
+  CAST(ROUND(AVG(active_lg)) AS INT64) AS active_lg,
+  COUNT(*) AS days_in_week
+FROM `site-monitoring-421401.job_data_export.dashboard_daily_totals`
+GROUP BY DATE_TRUNC(event_date, ISOWEEK);
+
+
+-- Table 5+: SEO Pulse dataset — clean copies for SEO reporting
+-- Placed last so all job_data_export tables succeed even if this fails.
+CREATE SCHEMA IF NOT EXISTS `site-monitoring-421401.SEO_pulse`
+OPTIONS(location = 'EU');
+
+CREATE OR REPLACE TABLE `site-monitoring-421401.SEO_pulse.daily_live_vacancies`
+PARTITION BY event_date
+AS
+SELECT * FROM `site-monitoring-421401.job_data_export.dashboard_daily_totals`;
+
+CREATE OR REPLACE TABLE `site-monitoring-421401.SEO_pulse.weekly_live_vacancies`
+PARTITION BY week_start
+AS
+SELECT * FROM `site-monitoring-421401.job_data_export.weekly_live_vacancies`;

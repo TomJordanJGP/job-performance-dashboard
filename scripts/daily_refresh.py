@@ -105,6 +105,7 @@ def verify_tables(client):
         ('job_performance_enriched', 'MAX(event_date_parsed)'),
         ('dashboard_vacancy_summary', 'MAX(last_event_date)'),
         ('dashboard_daily_totals', 'MAX(event_date)'),
+        ('weekly_live_vacancies', 'MAX(week_start)'),
         ('missing_external_ids', 'COUNT(*)'),
     ]
 

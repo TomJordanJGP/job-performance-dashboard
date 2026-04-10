@@ -118,7 +118,27 @@ def load_all_data(days_back=None, sample_size=None):
         {limit_clause}
         """
 
-        daily_query = f"""
+        # Enhanced daily query with GSC + site-split columns
+        daily_query_full = f"""
+        SELECT
+            event_date,
+            impressions, impressions_jgp, impressions_lg,
+            gb_impressions_jgp, gb_impressions_lg,
+            gsc_clicks, gsc_clicks_jgp, gsc_clicks_lg,
+            gb_gsc_clicks_jgp, gb_gsc_clicks_lg,
+            avg_position_jgp, avg_position_lg,
+            job_listing_rich_jgp, job_listing_rich_lg,
+            job_detail_rich_jgp, job_detail_rich_lg,
+            clicks, clicks_jgp, clicks_lg,
+            applies, applies_jgp, applies_lg,
+            active_vacancies, active_jgp, active_lg
+        FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_DAILY_TOTALS_TABLE_ID}`
+        {daily_where}
+        ORDER BY event_date
+        """
+
+        # Fallback daily query (pre-GSC schema)
+        daily_query_basic = f"""
         SELECT
             event_date,
             clicks,
@@ -145,8 +165,13 @@ def load_all_data(days_back=None, sample_size=None):
             vacancy_job = client.query(vacancy_query)
             vacancy_job.result()
 
-        daily_job = client.query(daily_query)
-        daily_job.result()
+        # Try enhanced daily query; fall back to basic if table not yet updated
+        try:
+            daily_job = client.query(daily_query_full)
+            daily_job.result()
+        except Exception:
+            daily_job = client.query(daily_query_basic)
+            daily_job.result()
 
         vacancy_df = vacancy_job.to_dataframe(create_bqstorage_client=False)
         daily_df = daily_job.to_dataframe(create_bqstorage_client=False)

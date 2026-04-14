@@ -60,9 +60,10 @@ def get_sheets_client():
 
 
 def get_unmatched_from_bq(bq_client):
-    """Query BigQuery for unmatched towns (NULL uk_region in vacancy_locations)."""
+    """Query BigQuery for unmatched locations (NULL uk_region in vacancy_locations)."""
     sql = """
     SELECT
+      vl.raw_location,
       vl.town_city,
       vl.country_region,
       'GB' as country_code,
@@ -71,14 +72,14 @@ def get_unmatched_from_bq(bq_client):
     WHERE (vl.uk_region IS NULL OR TRIM(vl.uk_region) = '')
       AND vl.town_city IS NOT NULL
       AND TRIM(vl.town_city) != ''
-    GROUP BY vl.town_city, vl.country_region
+    GROUP BY vl.raw_location, vl.town_city, vl.country_region
     ORDER BY vacancy_count DESC
     """
     return bq_client.query(sql).to_dataframe()
 
 
 HEADER_ROW = [
-    'town_city', 'country_region', 'country_code', 'vacancy_count',
+    'raw_location', 'town_city', 'country_region', 'country_code', 'vacancy_count',
     'suggested_region', 'suggested_county', 'confidence', 'source', 'done',
 ]
 
@@ -125,6 +126,7 @@ def overwrite_sheet(gc, data_df):
             row['town_city'], row['country_region']
         )
         rows.append([
+            row['raw_location'] if pd.notna(row['raw_location']) else '',
             row['town_city'],
             row['country_region'] if pd.notna(row['country_region']) else '',
             row['country_code'],
@@ -177,7 +179,7 @@ def main():
 
     if args.dry_run:
         print(f"\n  [DRY RUN] Would write {len(unmatched)} rows:")
-        print(unmatched[['town_city', 'country_region', 'vacancy_count']].head(20).to_string())
+        print(unmatched[['raw_location', 'vacancy_count']].head(20).to_string())
         if len(unmatched) > 20:
             print(f"  ... and {len(unmatched) - 20} more")
         return

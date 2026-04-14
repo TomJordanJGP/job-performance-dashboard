@@ -35,12 +35,23 @@ parsed AS (
 )
 SELECT
   p.entity_id,
+  p.raw_location,
   p.town_city,
   p.country_region,
-  COALESCE(rc.canonical_region, loc.region) as uk_region
+  COALESCE(
+    rc_raw.canonical_region, loc_raw.region,
+    rc_legacy.canonical_region, loc_legacy.region
+  ) as uk_region
 FROM parsed p
-LEFT JOIN `site-monitoring-421401.job_data_export.location_lookup` loc
-  ON UPPER(TRIM(p.town_city)) = UPPER(TRIM(loc.town_city))
-LEFT JOIN `site-monitoring-421401.job_data_export.region_canonical` rc
-  ON LOWER(COALESCE(loc.region, '')) = rc.variant
+-- Primary: match on full raw_location string
+LEFT JOIN `site-monitoring-421401.job_data_export.location_lookup` loc_raw
+  ON UPPER(TRIM(p.raw_location)) = UPPER(TRIM(loc_raw.raw_location))
+LEFT JOIN `site-monitoring-421401.job_data_export.region_canonical` rc_raw
+  ON LOWER(COALESCE(loc_raw.region, '')) = rc_raw.variant
+-- Fallback: match on town_city for legacy lookup rows without raw_location
+LEFT JOIN `site-monitoring-421401.job_data_export.location_lookup` loc_legacy
+  ON loc_raw.raw_location IS NULL
+  AND UPPER(TRIM(p.town_city)) = UPPER(TRIM(loc_legacy.town_city))
+LEFT JOIN `site-monitoring-421401.job_data_export.region_canonical` rc_legacy
+  ON LOWER(COALESCE(loc_legacy.region, '')) = rc_legacy.variant
 WHERE p.town_city IS NOT NULL AND TRIM(p.town_city) != '';

@@ -20,7 +20,30 @@
 -- Field mapping: organization_name → organization_profile_name
 
 -- Step 1: Create/refresh external table backed by the Missing IDs tab.
-CREATE OR REPLACE EXTERNAL TABLE `site-monitoring-421401.job_data_export.missing_ids_review_external`
+-- Explicit schema avoids auto-detection failures when columns (e.g. done) are empty.
+CREATE OR REPLACE EXTERNAL TABLE `site-monitoring-421401.job_data_export.missing_ids_review_external` (
+  entity_id STRING,
+  title STRING,
+  organization_name STRING,
+  importer_name STRING,
+  first_seen_date STRING,
+  event_count INT64,
+  external_id STRING,
+  organization_id STRING,
+  locations STRING,
+  employment_type STRING,
+  occupational_fields STRING,
+  employer_type STRING,
+  workflow_state STRING,
+  publishing_date STRING,
+  expiration_date STRING,
+  min_salary STRING,
+  max_salary STRING,
+  currency_code STRING,
+  salary_unit STRING,
+  salary_free_text STRING,
+  done STRING
+)
 OPTIONS (
   format = 'GOOGLE_SHEETS',
   uris = ['https://docs.google.com/spreadsheets/d/1YPfZMxK2Rdl91JjAKd60xtjNinDfBe0DHpa5euFwmDc'],

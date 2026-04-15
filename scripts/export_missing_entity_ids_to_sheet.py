@@ -93,10 +93,17 @@ def get_sheets_client():
 
 
 def get_missing_from_bq(bq_client):
-    """Query the pre-maintained vacancies_missing_entity_id table.
+    """Query job_metadata directly for rows missing entity_id.
 
-    Built each run by sync_feeds.py (lines 305-335). Contains exactly the
-    columns we want as context.
+    IMPORTANT: We query job_metadata live rather than the
+    vacancies_missing_entity_id snapshot table, because that snapshot is
+    built in sync_feeds.py (pipeline step 2) — BEFORE the MERGE in step
+    2.06 fills in the entity_ids the user just approved on the Sheet.
+    Reading the snapshot would write the just-filled rows back onto the
+    Sheet, making the flow appear broken.
+
+    The filter below matches exactly what sync_feeds.py uses to build the
+    snapshot, so the export reflects the true live state.
     """
     sql = """
     SELECT
@@ -106,7 +113,9 @@ def get_missing_from_bq(bq_client):
       locations,
       workflow_state,
       publishing_date
-    FROM `site-monitoring-421401.job_data_export.vacancies_missing_entity_id`
+    FROM `site-monitoring-421401.job_data_export.job_metadata`
+    WHERE (entity_id IS NULL OR entity_id = '')
+      AND external_id IS NOT NULL AND external_id != ''
     ORDER BY publishing_date DESC NULLS LAST
     """
     return bq_client.query(sql).to_dataframe()
@@ -165,7 +174,7 @@ def main():
         print(f"ERROR: service_account.json not found at {SA_PATH}")
         sys.exit(1)
 
-    print("Querying vacancies_missing_entity_id table...")
+    print("Querying job_metadata for rows missing entity_id...")
     bq_client = get_bq_client()
     missing = get_missing_from_bq(bq_client)
     print(f"  Found {len(missing)} vacancies with external_id but no entity_id")

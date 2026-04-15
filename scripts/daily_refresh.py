@@ -165,6 +165,15 @@ def main():
     if not ok:
         print("  WARNING: External ID additions sync failed. Continuing with existing metadata...")
 
+    # Step 2.06: Sync approved entity_id fills from Google Sheet → job_metadata.
+    # Counterpart to 2.05 keyed the other direction — matches on external_id to
+    # fill in entity_id + employer_type + original_publishing_date on feed rows
+    # that don't yet have a Jobiqo entity_id.
+    ok = run_sql_file(client, 'sync_entity_id_additions.sql',
+                      'Sync approved entity_id additions from Sheet', args.dry_run)
+    if not ok:
+        print("  WARNING: Entity ID additions sync failed. Continuing with existing metadata...")
+
     # Step 2.1: Sync approved location additions from Google Sheet → location_lookup.
     # Must run BEFORE vacancy_locations refresh so new lookup entries are available.
     ok = run_sql_file(client, 'sync_location_additions.sql',
@@ -227,6 +236,32 @@ def main():
             print("  Non-critical — continuing...")
     else:
         print(f"  SKIPPED: {export_missing_ids_script} not found")
+
+    # Step 5.6: Detect and export vacancies missing entity_id to review Sheet.
+    # Counterpart to 5.5 — reads vacancies_missing_entity_id (maintained by
+    # sync_feeds.py earlier in the run) and overwrites the "Missing Entity IDs"
+    # tab.
+    print(f"\n{'='*60}")
+    print("Step: Detect and export missing entity IDs to review Sheet")
+    export_missing_entity_ids_script = os.path.join(script_dir, 'export_missing_entity_ids_to_sheet.py')
+    if args.dry_run:
+        print("  [DRY RUN] Would run export_missing_entity_ids_to_sheet.py")
+    elif os.path.exists(export_missing_entity_ids_script):
+        result = subprocess.run(
+            [sys.executable, export_missing_entity_ids_script],
+            capture_output=True, text=True
+        )
+        if result.stdout.strip():
+            for line in result.stdout.strip().split('\n'):
+                print(f"  {line}")
+        if result.returncode != 0:
+            print(f"  WARNING: Missing entity ID export failed (exit code {result.returncode})")
+            if result.stderr.strip():
+                for line in result.stderr.strip().split('\n'):
+                    print(f"  STDERR: {line}")
+            print("  Non-critical — continuing...")
+    else:
+        print(f"  SKIPPED: {export_missing_entity_ids_script} not found")
 
     # Step 6: Detect and append new unmatched towns to review Sheet.
     # Runs after vacancy_locations refresh so we have up-to-date unmatched data.

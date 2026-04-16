@@ -4,7 +4,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from data.calculations import calculate_metrics, calculate_quartile_metrics
-from data.filters import apply_filters_to_data
+from data.filters import apply_filters_to_data, apply_filters_to_region_data
 from data.regions import get_country_for_region, COUNTRY_REGIONS
 from theme.components import kpi_card, page_header, filter_tags, section_header, branded_divider
 from theme.colors import JGP_COLORS, JGP_PLOTLY_TEMPLATE
@@ -22,7 +22,7 @@ def _quartile_val(quartiles, key, metric):
     return _fmt(quartiles[key][metric])
 
 
-def render_dashboard(df, daily_totals=None):
+def render_dashboard(df, daily_totals=None, region_df=None):
     """Render the Dashboard page."""
 
     # Show active filter tags
@@ -145,15 +145,26 @@ def render_dashboard(df, daily_totals=None):
     st.markdown(branded_divider(), unsafe_allow_html=True)
 
     # Job Listings by Country / Region
-    if 'uk_regions' in filtered_df.columns:
+    has_region_data = (region_df is not None and 'uk_region' in region_df.columns) or 'uk_regions' in filtered_df.columns
+    if has_region_data:
         st.markdown(section_header("Job Listings by Country / Region", "geo-alt"), unsafe_allow_html=True)
+        st.caption(
+            "A vacancy listed in multiple regions is counted once per region. "
+            "Regional totals may therefore exceed the overall vacancy count."
+        )
 
-        region_counts = {}
-        for regions_str in filtered_df['uk_regions'].dropna():
-            for r in str(regions_str).split(' | '):
-                r = r.strip()
-                if r:
-                    region_counts[r] = region_counts.get(r, 0) + 1
+        if region_df is not None and 'uk_region' in region_df.columns:
+            # Use pre-exploded region table — no pipe-splitting needed
+            filtered_region = apply_filters_to_region_data(region_df, st.session_state.get('global_filters'))
+            region_counts = filtered_region.groupby('uk_region').size().to_dict()
+        else:
+            # Fallback: pipe-split from vacancy summary
+            region_counts = {}
+            for regions_str in filtered_df['uk_regions'].dropna():
+                for r in str(regions_str).split(' | '):
+                    r = r.strip()
+                    if r:
+                        region_counts[r] = region_counts.get(r, 0) + 1
 
         if region_counts:
             # Build country-grouped data

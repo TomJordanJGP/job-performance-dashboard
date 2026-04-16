@@ -43,6 +43,9 @@ SELECT
   ANY_VALUE(contract_type) as contract_type,
   ANY_VALUE(employment_type) as employment_type,
 
+  -- External ID (for cross-referencing with feeds / review queues)
+  ANY_VALUE(external_id) as external_id,
+
   -- Salary fields
   ANY_VALUE(min_salary) as min_salary,
   ANY_VALUE(max_salary) as max_salary,
@@ -57,6 +60,50 @@ SELECT
 
 FROM enriched
 GROUP BY entity_id_str;
+
+
+-- Table 1b: Per-vacancy per-region summary (one row per vacancy per region)
+-- Used for: regional breakdowns in dashboard charts, benchmark tables, salary analysis.
+-- A vacancy in 3 regions produces 3 rows, each carrying the full click/apply counts
+-- (GA4 cannot attribute events to a specific location within a multi-location vacancy).
+-- Regional totals will intentionally exceed overall vacancy/click totals.
+-- raw_location + town_city preserved so individual addresses are visible post-explosion.
+CREATE OR REPLACE TABLE `site-monitoring-421401.job_data_export.dashboard_vacancy_region_summary`
+AS
+SELECT
+  vs.entity_id_str,
+  vs.external_id,
+  COALESCE(vl.uk_region, vs.primary_uk_region, 'Unknown') AS uk_region,
+  vl.raw_location,
+  vl.town_city,
+  vs.first_event_date,
+  vs.last_event_date,
+  vs.clicks,
+  vs.applies,
+  vs.title,
+  vs.organization_name,
+  vs.occupational_fields,
+  vs.importer_ID,
+  vs.importer_name,
+  vs.workflow_state,
+  vs.upgrades,
+  vs.start_date,
+  vs.end_date,
+  vs.category,
+  vs.contract_type,
+  vs.employment_type,
+  vs.min_salary,
+  vs.max_salary,
+  vs.currency_code,
+  vs.salary_free_text,
+  vs.salary_exact,
+  vs.salary_unit,
+  vs.sites
+FROM `site-monitoring-421401.job_data_export.dashboard_vacancy_summary` vs
+LEFT JOIN `site-monitoring-421401.job_data_export.vacancy_locations` vl
+  ON vs.entity_id_str = vl.entity_id
+  AND vl.uk_region IS NOT NULL
+  AND TRIM(vl.uk_region) != '';
 
 
 -- Table 2: Daily totals (one row per day)

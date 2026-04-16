@@ -6,7 +6,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
-from data.filters import apply_filters_to_data
+from data.filters import apply_filters_to_data, apply_filters_to_region_data
 from data.processing import calculate_salary_statistics, calculate_percentile_rank
 from theme.components import (
     kpi_card, page_header, filter_tags, section_header,
@@ -47,7 +47,7 @@ def _competitiveness_label(percentile):
         return "Below Market"
 
 
-def render_salary(df):
+def render_salary(df, region_df=None):
     """Render the Salary Benchmarking page."""
 
     # Show active filter tags
@@ -111,14 +111,19 @@ def render_salary(df):
     occupations = sorted(salary_with_data['occupation'].dropna().unique())
     occupations = [o for o in occupations if o != 'Unknown']
 
-    regions = set()
-    if 'uk_regions' in salary_with_data.columns:
-        for regions_str in salary_with_data['uk_regions'].dropna():
-            for r in str(regions_str).split(' | '):
-                r = r.strip()
-                if r:
-                    regions.add(r)
-    regions = sorted(regions)
+    if region_df is not None and 'uk_region' in region_df.columns:
+        filtered_region = apply_filters_to_region_data(region_df, st.session_state.get('global_filters'))
+        salary_region = filtered_region[filtered_region.get('has_salary_data', True)] if 'has_salary_data' in filtered_region.columns else filtered_region
+        regions = sorted(salary_region['uk_region'].dropna().unique())
+    else:
+        regions = set()
+        if 'uk_regions' in salary_with_data.columns:
+            for regions_str in salary_with_data['uk_regions'].dropna():
+                for r in str(regions_str).split(' | '):
+                    r = r.strip()
+                    if r:
+                        regions.add(r)
+        regions = sorted(regions)
 
     with st.form(key='salary_checker_form'):
         col_salary, col_occ, col_reg = st.columns(3)
@@ -147,9 +152,12 @@ def render_salary(df):
     if selected_occ != "All Occupations":
         comparison = comparison[comparison['occupation'] == selected_occ]
     if selected_reg != "All Regions":
-        comparison = comparison[comparison['uk_regions'].apply(
-            lambda x: selected_reg in [r.strip() for r in str(x).split(' | ')] if pd.notna(x) else False
-        )]
+        if 'uk_region' in comparison.columns:
+            comparison = comparison[comparison['uk_region'] == selected_reg]
+        elif 'uk_regions' in comparison.columns:
+            comparison = comparison[comparison['uk_regions'].apply(
+                lambda x: selected_reg in [r.strip() for r in str(x).split(' | ')] if pd.notna(x) else False
+            )]
 
     mid_series = comparison['annual_mid_salary'].dropna()
 
@@ -413,39 +421,70 @@ def render_salary(df):
 
     reg_tab1, reg_tab2 = st.tabs(["Heatmap", "Table"])
 
-    # Pre-compute region stats (handling pipe-separated regions)
-    all_regions = set()
-    if 'uk_regions' in salary_with_data.columns:
-        for regions_str in salary_with_data['uk_regions'].dropna():
-            for r in str(regions_str).split(' | '):
-                r = r.strip()
-                if r:
-                    all_regions.add(r)
-
+    # Pre-compute region stats
     reg_stats = []
     reg_median_map = {}
-    for region in all_regions:
-        mask = salary_with_data['uk_regions'].apply(
-            lambda x, r=region: r in [rr.strip() for rr in str(x).split(' | ')] if pd.notna(x) else False
-        )
-        reg_data = salary_with_data[mask]
-        mid_vals = reg_data['annual_mid_salary'].dropna()
-        if len(mid_vals) >= min_sample:
-            reg_min_stats = calculate_salary_statistics(reg_data['annual_min_salary'])
-            reg_max_stats = calculate_salary_statistics(reg_data['annual_max_salary'])
-            mid_stats = calculate_salary_statistics(mid_vals)
-            reg_median_map[region] = mid_stats['median']
-            reg_stats.append({
-                'Region': region,
-                'Count': len(mid_vals),
-                'Median Min': _fmt_salary(reg_min_stats['median']),
-                'Median Max': _fmt_salary(reg_max_stats['median']),
-                'Mean Min': _fmt_salary(reg_min_stats['mean']),
-                'Mean Max': _fmt_salary(reg_max_stats['mean']),
-                '25th pctl': _fmt_salary(reg_min_stats['p25']),
-                '75th pctl': _fmt_salary(reg_max_stats['p75']),
-                '_median_sort': mid_stats['median'],
-            })
+
+    if region_df is not None and 'uk_region' in region_df.columns:
+        # Use pre-exploded region table
+        filtered_region = apply_filters_to_region_data(region_df, st.session_state.get('global_filters'))
+        if salary_only and 'has_salary_data' in filtered_region.columns:
+            salary_region = filtered_region[filtered_region['has_salary_data']]
+        else:
+            salary_region = filtered_region
+        salary_region_with_data = salary_region[salary_region.get('has_salary_data', True)] if 'has_salary_data' in salary_region.columns else salary_region
+
+        for region in sorted(salary_region_with_data['uk_region'].dropna().unique()):
+            reg_data = salary_region_with_data[salary_region_with_data['uk_region'] == region]
+            mid_vals = reg_data['annual_mid_salary'].dropna()
+            if len(mid_vals) >= min_sample:
+                reg_min_stats = calculate_salary_statistics(reg_data['annual_min_salary'])
+                reg_max_stats = calculate_salary_statistics(reg_data['annual_max_salary'])
+                mid_stats = calculate_salary_statistics(mid_vals)
+                reg_median_map[region] = mid_stats['median']
+                reg_stats.append({
+                    'Region': region,
+                    'Count': len(mid_vals),
+                    'Median Min': _fmt_salary(reg_min_stats['median']),
+                    'Median Max': _fmt_salary(reg_max_stats['median']),
+                    'Mean Min': _fmt_salary(reg_min_stats['mean']),
+                    'Mean Max': _fmt_salary(reg_max_stats['mean']),
+                    '25th pctl': _fmt_salary(reg_min_stats['p25']),
+                    '75th pctl': _fmt_salary(reg_max_stats['p75']),
+                    '_median_sort': mid_stats['median'],
+                })
+    else:
+        # Fallback: pipe-split from vacancy summary
+        all_regions = set()
+        if 'uk_regions' in salary_with_data.columns:
+            for regions_str in salary_with_data['uk_regions'].dropna():
+                for r in str(regions_str).split(' | '):
+                    r = r.strip()
+                    if r:
+                        all_regions.add(r)
+
+        for region in all_regions:
+            mask = salary_with_data['uk_regions'].apply(
+                lambda x, r=region: r in [rr.strip() for rr in str(x).split(' | ')] if pd.notna(x) else False
+            )
+            reg_data = salary_with_data[mask]
+            mid_vals = reg_data['annual_mid_salary'].dropna()
+            if len(mid_vals) >= min_sample:
+                reg_min_stats = calculate_salary_statistics(reg_data['annual_min_salary'])
+                reg_max_stats = calculate_salary_statistics(reg_data['annual_max_salary'])
+                mid_stats = calculate_salary_statistics(mid_vals)
+                reg_median_map[region] = mid_stats['median']
+                reg_stats.append({
+                    'Region': region,
+                    'Count': len(mid_vals),
+                    'Median Min': _fmt_salary(reg_min_stats['median']),
+                    'Median Max': _fmt_salary(reg_max_stats['median']),
+                    'Mean Min': _fmt_salary(reg_min_stats['mean']),
+                    'Mean Max': _fmt_salary(reg_max_stats['mean']),
+                    '25th pctl': _fmt_salary(reg_min_stats['p25']),
+                    '75th pctl': _fmt_salary(reg_max_stats['p75']),
+                    '_median_sort': mid_stats['median'],
+                })
 
     with reg_tab1:
         if reg_median_map:

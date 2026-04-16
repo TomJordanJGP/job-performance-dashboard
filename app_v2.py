@@ -23,6 +23,7 @@ BQ_DATASET_ID = "job_data_export"
 BQ_TABLE_ID = "dashboard_vacancy_summary"
 BQ_DAILY_TOTALS_TABLE_ID = "dashboard_daily_totals"
 BQ_MEDIA_SUMMARY_TABLE_ID = "dashboard_media_summary"
+BQ_REGION_SUMMARY_TABLE_ID = "dashboard_vacancy_region_summary"
 
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets.readonly',
@@ -241,7 +242,21 @@ def load_all_data(days_back=30, sample_size=None):
             except Exception:
                 media_df = _ensure_media_summary_table(client)
 
-        return vacancy_df, daily_df, media_df
+        # Region-exploded summary (one row per vacancy per region)
+        region_df = None
+        try:
+            region_query = f"""
+            SELECT *
+            FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_REGION_SUMMARY_TABLE_ID}`
+            WHERE last_event_date >= '{cutoff_date}'
+            """
+            region_job = client.query(region_query)
+            region_job.result()
+            region_df = region_job.to_dataframe(create_bqstorage_client=False)
+        except Exception:
+            pass  # Table may not exist yet
+
+        return vacancy_df, daily_df, media_df, region_df
     except Exception as e:
         st.error(f"❌ Error loading data: {str(e)}")
         st.markdown("""
@@ -475,8 +490,11 @@ def create_filter_panel(df, key_prefix, default_months=6):
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        # Region Filter — extract all unique regions from pipe-separated uk_regions
-        if 'uk_regions' in df.columns:
+        # Region Filter — use pre-exploded region_df when available
+        _rdf = st.session_state.get('_region_df')
+        if _rdf is not None and 'uk_region' in _rdf.columns:
+            regions = sorted(_rdf['uk_region'].dropna().unique())
+        elif 'uk_regions' in df.columns:
             all_regions = set()
             for regions_str in df['uk_regions'].dropna():
                 for r in str(regions_str).split(' | '):
@@ -484,6 +502,9 @@ def create_filter_panel(df, key_prefix, default_months=6):
                     if r:
                         all_regions.add(r)
             regions = sorted(all_regions)
+        else:
+            regions = []
+        if regions:
             filters['region'] = st.multiselect(
                 "Region",
                 regions,
@@ -934,32 +955,52 @@ def create_overview_tab(df, daily_totals=None):
                 st.info("No importer data available for the selected filters.")
 
     with col2:
-        if 'uk_regions' in filtered_df.columns:
+        _rdf = st.session_state.get('_region_df')
+        has_region = (_rdf is not None and 'uk_region' in _rdf.columns) or 'uk_regions' in filtered_df.columns
+        if has_region:
             st.subheader("Performance by Region")
-            # Explode pipe-separated regions so each region is counted independently
-            # A vacancy in "London | West Midlands" contributes to both region stats
+            st.caption("A vacancy in multiple regions counts once per region.")
             region_stats = []
-            all_regions = set()
-            for regions_str in filtered_df['uk_regions'].dropna():
-                for r in str(regions_str).split(' | '):
-                    r = r.strip()
-                    if r:
-                        all_regions.add(r)
-            for region in all_regions:
-                reg_mask = filtered_df['uk_regions'].apply(
-                    lambda x: region in [r.strip() for r in str(x).split(' | ')] if pd.notna(x) else False
-                )
-                reg_df = filtered_df[reg_mask]
-                reg_metrics = calculate_metrics(reg_df)
-                region_stats.append({
-                    'Region': region,
-                    'Vacancies': reg_metrics['num_vacancies'],
-                    'Median Clicks': round(reg_metrics['median_clicks_per_vacancy'], 1),
-                    'Mean Clicks': round(reg_metrics['mean_clicks_per_vacancy'], 1),
-                    'Median Applies': round(reg_metrics['median_applies_per_vacancy'], 2),
-                    'Mean Applies': round(reg_metrics['mean_applies_per_vacancy'], 2),
-                    'Apply/Click %': round(reg_metrics['apply_click_ratio'], 2)
-                })
+
+            if _rdf is not None and 'uk_region' in _rdf.columns:
+                # Use pre-exploded region table
+                from data.filters import apply_filters_to_region_data
+                filtered_region = apply_filters_to_region_data(_rdf, st.session_state.get('overview_filters'))
+                for region in sorted(filtered_region['uk_region'].dropna().unique()):
+                    reg_df = filtered_region[filtered_region['uk_region'] == region]
+                    reg_metrics = calculate_metrics(reg_df)
+                    region_stats.append({
+                        'Region': region,
+                        'Vacancies': reg_metrics['num_vacancies'],
+                        'Median Clicks': round(reg_metrics['median_clicks_per_vacancy'], 1),
+                        'Mean Clicks': round(reg_metrics['mean_clicks_per_vacancy'], 1),
+                        'Median Applies': round(reg_metrics['median_applies_per_vacancy'], 2),
+                        'Mean Applies': round(reg_metrics['mean_applies_per_vacancy'], 2),
+                        'Apply/Click %': round(reg_metrics['apply_click_ratio'], 2)
+                    })
+            else:
+                # Fallback: pipe-split
+                all_regions = set()
+                for regions_str in filtered_df['uk_regions'].dropna():
+                    for r in str(regions_str).split(' | '):
+                        r = r.strip()
+                        if r:
+                            all_regions.add(r)
+                for region in all_regions:
+                    reg_mask = filtered_df['uk_regions'].apply(
+                        lambda x: region in [r.strip() for r in str(x).split(' | ')] if pd.notna(x) else False
+                    )
+                    reg_df = filtered_df[reg_mask]
+                    reg_metrics = calculate_metrics(reg_df)
+                    region_stats.append({
+                        'Region': region,
+                        'Vacancies': reg_metrics['num_vacancies'],
+                        'Median Clicks': round(reg_metrics['median_clicks_per_vacancy'], 1),
+                        'Mean Clicks': round(reg_metrics['mean_clicks_per_vacancy'], 1),
+                        'Median Applies': round(reg_metrics['median_applies_per_vacancy'], 2),
+                        'Mean Applies': round(reg_metrics['mean_applies_per_vacancy'], 2),
+                        'Apply/Click %': round(reg_metrics['apply_click_ratio'], 2)
+                    })
 
             if region_stats:
                 region_df = pd.DataFrame(region_stats).sort_values('Mean Clicks', ascending=False)
@@ -1045,30 +1086,49 @@ def create_deep_dive_tab(df):
         benchmark_data = []
 
         if dimension == 'Region':
-            # Regions are pipe-separated — explode for per-region stats
-            all_values = set()
-            for regions_str in filtered_df[col_name].dropna():
-                for r in str(regions_str).split(' | '):
-                    r = r.strip()
-                    if r:
-                        all_values.add(r)
-            for value in all_values:
-                mask = filtered_df[col_name].apply(
-                    lambda x: value in [r.strip() for r in str(x).split(' | ')] if pd.notna(x) else False
-                )
-                subset = filtered_df[mask]
-                metrics = calculate_metrics(subset)
-                benchmark_data.append({
-                    dimension: value,
-                    'Vacancies': metrics['num_vacancies'],
-                    'Total Clicks': metrics['total_clicks'],
-                    'Total Applies': metrics['total_applies'],
-                    'Apply/Click %': round(metrics['apply_click_ratio'], 2),
-                    'Median Clicks/Vac': round(metrics['median_clicks_per_vacancy'], 1),
-                    'Mean Clicks/Vac': round(metrics['mean_clicks_per_vacancy'], 1),
-                    'Median Applies/Vac': round(metrics['median_applies_per_vacancy'], 2),
-                    'Mean Applies/Vac': round(metrics['mean_applies_per_vacancy'], 2)
-                })
+            _rdf = st.session_state.get('_region_df')
+            if _rdf is not None and 'uk_region' in _rdf.columns:
+                from data.filters import apply_filters_to_region_data
+                filtered_region = apply_filters_to_region_data(_rdf, st.session_state.get('deepdive_filters'))
+                for value in sorted(filtered_region['uk_region'].dropna().unique()):
+                    subset = filtered_region[filtered_region['uk_region'] == value]
+                    metrics = calculate_metrics(subset)
+                    benchmark_data.append({
+                        dimension: value,
+                        'Vacancies': metrics['num_vacancies'],
+                        'Total Clicks': metrics['total_clicks'],
+                        'Total Applies': metrics['total_applies'],
+                        'Apply/Click %': round(metrics['apply_click_ratio'], 2),
+                        'Median Clicks/Vac': round(metrics['median_clicks_per_vacancy'], 1),
+                        'Mean Clicks/Vac': round(metrics['mean_clicks_per_vacancy'], 1),
+                        'Median Applies/Vac': round(metrics['median_applies_per_vacancy'], 2),
+                        'Mean Applies/Vac': round(metrics['mean_applies_per_vacancy'], 2)
+                    })
+            else:
+                # Fallback: pipe-split
+                all_values = set()
+                for regions_str in filtered_df[col_name].dropna():
+                    for r in str(regions_str).split(' | '):
+                        r = r.strip()
+                        if r:
+                            all_values.add(r)
+                for value in all_values:
+                    mask = filtered_df[col_name].apply(
+                        lambda x: value in [r.strip() for r in str(x).split(' | ')] if pd.notna(x) else False
+                    )
+                    subset = filtered_df[mask]
+                    metrics = calculate_metrics(subset)
+                    benchmark_data.append({
+                        dimension: value,
+                        'Vacancies': metrics['num_vacancies'],
+                        'Total Clicks': metrics['total_clicks'],
+                        'Total Applies': metrics['total_applies'],
+                        'Apply/Click %': round(metrics['apply_click_ratio'], 2),
+                        'Median Clicks/Vac': round(metrics['median_clicks_per_vacancy'], 1),
+                        'Mean Clicks/Vac': round(metrics['mean_clicks_per_vacancy'], 1),
+                        'Median Applies/Vac': round(metrics['median_applies_per_vacancy'], 2),
+                        'Mean Applies/Vac': round(metrics['mean_applies_per_vacancy'], 2)
+                    })
         else:
             for value in filtered_df[col_name].unique():
                 subset = filtered_df[filtered_df[col_name] == value]
@@ -1106,33 +1166,55 @@ def create_deep_dive_tab(df):
     # Heatmap
     st.subheader("🗺️ Performance Heatmap")
 
-    if 'uk_regions' in filtered_df.columns and 'importer_name' in filtered_df.columns:
+    _rdf = st.session_state.get('_region_df')
+    has_heatmap = (
+        (_rdf is not None and 'uk_region' in _rdf.columns)
+        or 'uk_regions' in filtered_df.columns
+    ) and 'importer_name' in filtered_df.columns
+    if has_heatmap:
         heatmap_data = []
-        # Explode regions for heatmap
-        all_regions = set()
-        for regions_str in filtered_df['uk_regions'].dropna():
-            for r in str(regions_str).split(' | '):
-                r = r.strip()
-                if r:
-                    all_regions.add(r)
-        for region in all_regions:
-            reg_mask = filtered_df['uk_regions'].apply(
-                lambda x: region in [r.strip() for r in str(x).split(' | ')] if pd.notna(x) else False
-            )
-            for importer in filtered_df['importer_name'].unique():
-                subset = filtered_df[
-                    reg_mask &
-                    (filtered_df['importer_name'] == importer)
-                ]
-                if len(subset) > 0:
-                    metrics = calculate_metrics(subset)
-                    heatmap_data.append({
-                        'Region': region,
-                        'Importer': importer,
-                        'Clicks/Vacancy': metrics['clicks_per_vacancy'],
-                        'Applies/Vacancy': metrics['applies_per_vacancy'],
-                        'Apply/Click %': metrics['apply_click_ratio']
-                    })
+
+        if _rdf is not None and 'uk_region' in _rdf.columns:
+            from data.filters import apply_filters_to_region_data
+            filtered_region = apply_filters_to_region_data(_rdf, st.session_state.get('deepdive_filters'))
+            for region in sorted(filtered_region['uk_region'].dropna().unique()):
+                reg_subset = filtered_region[filtered_region['uk_region'] == region]
+                for importer in reg_subset['importer_name'].unique():
+                    subset = reg_subset[reg_subset['importer_name'] == importer]
+                    if len(subset) > 0:
+                        metrics = calculate_metrics(subset)
+                        heatmap_data.append({
+                            'Region': region,
+                            'Importer': importer,
+                            'Clicks/Vacancy': metrics['clicks_per_vacancy'],
+                            'Applies/Vacancy': metrics['applies_per_vacancy'],
+                            'Apply/Click %': metrics['apply_click_ratio']
+                        })
+        else:
+            all_regions = set()
+            for regions_str in filtered_df['uk_regions'].dropna():
+                for r in str(regions_str).split(' | '):
+                    r = r.strip()
+                    if r:
+                        all_regions.add(r)
+            for region in all_regions:
+                reg_mask = filtered_df['uk_regions'].apply(
+                    lambda x: region in [r.strip() for r in str(x).split(' | ')] if pd.notna(x) else False
+                )
+                for importer in filtered_df['importer_name'].unique():
+                    subset = filtered_df[
+                        reg_mask &
+                        (filtered_df['importer_name'] == importer)
+                    ]
+                    if len(subset) > 0:
+                        metrics = calculate_metrics(subset)
+                        heatmap_data.append({
+                            'Region': region,
+                            'Importer': importer,
+                            'Clicks/Vacancy': metrics['clicks_per_vacancy'],
+                            'Applies/Vacancy': metrics['applies_per_vacancy'],
+                            'Apply/Click %': metrics['apply_click_ratio']
+                        })
 
         if heatmap_data:
             heatmap_df = pd.DataFrame(heatmap_data)
@@ -2645,7 +2727,7 @@ def main():
     status_text = st.empty()
 
     status_text.text("Loading data from BigQuery... 0%")
-    df_raw, daily_totals, media_df = load_all_data(days_back=days_back, sample_size=sample_size)
+    df_raw, daily_totals, media_df, region_raw = load_all_data(days_back=days_back, sample_size=sample_size)
     progress_bar.progress(30)
 
     status_text.text("Loading launch timing data... 30%")
@@ -2681,6 +2763,18 @@ def main():
     status_text.text("Processing salary data... 92%")
     df = process_salary_columns(df)
     progress_bar.progress(100)
+
+    # Process region_df through same enrichment pipeline
+    region_df = None
+    if region_raw is not None:
+        region_df = region_raw.copy()
+        region_df = prepare_enriched_data(region_df)
+        region_df = apply_importer_mapping(region_df, importer_mapping)
+        region_df = parse_upgrades(region_df)
+        region_df = parse_dates_in_jobiqo(region_df)
+        region_df = add_occupation_column(region_df)
+        region_df = process_salary_columns(region_df)
+    st.session_state['_region_df'] = region_df
 
     status_text.text("✅ Data loaded successfully!")
     progress_bar.empty()

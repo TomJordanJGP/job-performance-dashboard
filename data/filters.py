@@ -10,8 +10,14 @@ from data.regions import (
 )
 
 
-def _get_available_regions(df):
-    """Extract all unique regions from pipe-separated uk_regions column."""
+def _get_available_regions(df, region_df=None):
+    """Extract all unique regions.
+
+    Uses region_df (one row per vacancy per region) when available,
+    otherwise falls back to pipe-splitting uk_regions column.
+    """
+    if region_df is not None and 'uk_region' in region_df.columns:
+        return set(region_df['uk_region'].dropna().unique())
     all_regions = set()
     if 'uk_regions' in df.columns:
         for regions_str in df['uk_regions'].dropna():
@@ -285,6 +291,58 @@ def apply_filters_to_data(df, filters):
             if pd.notna(x) else False
         )
         filtered = filtered[mask]
+
+    # Occupation
+    if filters.get('occupation') and 'occupation' in filtered.columns:
+        filtered = filtered[filtered['occupation'].isin(filters['occupation'])]
+
+    # Upgrades
+    if filters.get('upgrades') and 'upgrades_list' in filtered.columns:
+        filtered = filtered[filtered['upgrades_list'].apply(
+            lambda x: any(upgrade in x for upgrade in filters['upgrades'])
+        )]
+
+    # Job Title Search
+    if filters.get('job_title') and filters['job_title'].strip():
+        if 'title' in filtered.columns:
+            search_term = filters['job_title'].strip().lower()
+            filtered = filtered[filtered['title'].str.lower().str.contains(search_term, na=False, regex=False)]
+
+    return filtered
+
+
+def apply_filters_to_region_data(region_df, filters):
+    """Apply filter selections to the region-exploded DataFrame.
+
+    Same logic as apply_filters_to_data except the region filter uses
+    direct equality on the uk_region column (no pipe-splitting needed).
+    """
+    if filters is None or region_df is None:
+        return region_df.copy() if region_df is not None else pd.DataFrame()
+
+    filtered = region_df.copy()
+
+    # Date Range
+    if filters.get('date_range') and len(filters['date_range']) == 2:
+        start_date, end_date = filters['date_range']
+        if 'first_event_date' in filtered.columns and 'last_event_date' in filtered.columns:
+            if pd.api.types.is_datetime64_any_dtype(filtered['last_event_date']):
+                filtered = filtered[
+                    (filtered['first_event_date'].dt.date <= end_date) &
+                    (filtered['last_event_date'].dt.date >= start_date)
+                ]
+
+    # Importer
+    if filters.get('importer') and 'importer_name' in filtered.columns:
+        filtered = filtered[filtered['importer_name'].isin(filters['importer'])]
+
+    # Company
+    if filters.get('company') and 'organization_name' in filtered.columns:
+        filtered = filtered[filtered['organization_name'].isin(filters['company'])]
+
+    # Region — direct equality, no pipe-split needed
+    if filters.get('region') and 'uk_region' in filtered.columns:
+        filtered = filtered[filtered['uk_region'].isin(filters['region'])]
 
     # Occupation
     if filters.get('occupation') and 'occupation' in filtered.columns:

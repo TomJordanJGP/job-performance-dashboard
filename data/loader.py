@@ -12,6 +12,7 @@ BQ_PROJECT_ID = "site-monitoring-421401"
 BQ_DATASET_ID = "job_data_export"
 BQ_TABLE_ID = "dashboard_vacancy_summary"
 BQ_DAILY_TOTALS_TABLE_ID = "dashboard_daily_totals"
+BQ_REGION_SUMMARY_TABLE_ID = "dashboard_vacancy_region_summary"
 
 SCOPES = [
     'https://www.googleapis.com/auth/bigquery',
@@ -67,7 +68,12 @@ def get_bigquery_client():
 
 @st.cache_data(ttl=14400)
 def load_all_data(days_back=None, sample_size=None):
-    """Load vacancy summary and daily totals in a single BigQuery call."""
+    """Load vacancy summary, daily totals, and region-exploded summary from BigQuery.
+
+    Returns:
+        (vacancy_df, daily_df, region_df) — region_df is None if the table
+        doesn't exist yet; views fall back to pipe-split logic in that case.
+    """
     try:
         client = get_bigquery_client()
         if days_back is not None:
@@ -176,7 +182,50 @@ def load_all_data(days_back=None, sample_size=None):
         vacancy_df = vacancy_job.to_dataframe(create_bqstorage_client=False)
         daily_df = daily_job.to_dataframe(create_bqstorage_client=False)
 
-        return vacancy_df, daily_df
+        # Region-exploded summary (one row per vacancy per region)
+        # Falls back to None if the table doesn't exist yet
+        region_df = None
+        try:
+            region_query = f"""
+            SELECT
+                entity_id_str,
+                external_id,
+                uk_region,
+                raw_location,
+                town_city,
+                first_event_date,
+                last_event_date,
+                clicks,
+                applies,
+                title,
+                organization_name,
+                occupational_fields,
+                importer_ID,
+                importer_name,
+                workflow_state,
+                upgrades,
+                start_date,
+                end_date,
+                category,
+                contract_type,
+                employment_type,
+                min_salary,
+                max_salary,
+                currency_code,
+                salary_free_text,
+                salary_exact,
+                salary_unit,
+                sites
+            FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_REGION_SUMMARY_TABLE_ID}`
+            {vacancy_where}
+            """
+            region_job = client.query(region_query)
+            region_job.result()
+            region_df = region_job.to_dataframe(create_bqstorage_client=False)
+        except Exception:
+            pass  # Table may not exist yet — views fall back to pipe-split logic
+
+        return vacancy_df, daily_df, region_df
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
         st.markdown("""

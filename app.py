@@ -26,7 +26,7 @@ from data.processing import (
     add_occupation_column,
     process_salary_columns,
 )
-from data.filters import create_sidebar_filters
+from data.filters import create_sidebar_filters, apply_filters_to_region_data
 from views.dashboard import render_dashboard
 from views.performance import render_performance
 from views.compare import render_compare
@@ -54,8 +54,9 @@ def main():
 
     # === DATA LOADING (all data, no date cutoff) ===
     with st.spinner("Loading data..."):
-        df_raw, daily_totals = load_all_data(sample_size=None)
+        df_raw, daily_totals, region_raw = load_all_data(sample_size=None)
         df = _process_raw_data(df_raw)
+        region_df = _process_raw_data(region_raw) if region_raw is not None else None
 
     # Initialize session state
     for key in ['global_filters', 'comp_left_filters', 'comp_right_filters']:
@@ -65,7 +66,7 @@ def main():
     # === SIDEBAR FILTERS ===
     with st.sidebar:
         st.markdown('<div style="font-family:DM Sans,sans-serif;font-weight:700;font-size:14px;color:#9c67d3;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Filters</div>', unsafe_allow_html=True)
-        filters, apply_clicked = create_sidebar_filters(df)
+        filters, apply_clicked = create_sidebar_filters(df, region_df=region_df)
 
         # Apply filters to session state
         if apply_clicked:
@@ -106,16 +107,16 @@ def main():
     ])
 
     with tab1:
-        render_dashboard(df, daily_totals=daily_totals)
+        render_dashboard(df, daily_totals=daily_totals, region_df=region_df)
 
     with tab2:
-        render_performance(df)
+        render_performance(df, region_df=region_df)
 
     with tab3:
         render_compare(df)
 
     with tab4:
-        render_salary(df)
+        render_salary(df, region_df=region_df)
 
 
 if __name__ == "__main__":

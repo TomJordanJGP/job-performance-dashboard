@@ -28,7 +28,7 @@ def _get_available_regions(df, region_df=None):
     return all_regions
 
 
-def create_sidebar_filters(df, key_prefix='global'):
+def create_sidebar_filters(df, key_prefix='global', region_df=None):
     """Create the global filter panel in the sidebar.
 
     Widgets are live (dynamic) so selecting Country updates Region options.
@@ -78,7 +78,7 @@ def create_sidebar_filters(df, key_prefix='global'):
         )
 
     # Country / Region (two linked filters - dynamic)
-    available_regions = _get_available_regions(df)
+    available_regions = _get_available_regions(df, region_df=region_df)
     if available_regions:
         country_options = get_available_countries(available_regions)
         selected_countries = st.sidebar.multiselect(

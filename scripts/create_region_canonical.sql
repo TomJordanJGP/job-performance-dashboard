@@ -69,6 +69,16 @@ WITH variants AS (
   SELECT 'eastern', 'East of England' UNION ALL
   SELECT 'east', 'East of England' UNION ALL
 
+  -- London hyphenated variant
+  SELECT 'greater-london', 'Greater London' UNION ALL
+
+  -- North West variant
+  SELECT 'north west england', 'North West' UNION ALL
+
+  -- Overseas territories
+  SELECT 'overseas territory', 'Overseas Territory' UNION ALL
+  SELECT 'british overseas territory', 'Overseas Territory' UNION ALL
+
   -- Crown dependencies (map to closest or leave as-is)
   SELECT 'jersey', 'Channel Islands' UNION ALL
   SELECT 'guernsey', 'Channel Islands' UNION ALL

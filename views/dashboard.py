@@ -345,8 +345,11 @@ def render_dashboard(df, daily_totals=None, region_df=None):
                     fitbounds='locations',
                     visible=False,
                 )
+                # Use only geo-compatible layout keys (no xaxis/yaxis)
+                geo_layout = {k: v for k, v in JGP_PLOTLY_TEMPLATE['layout'].items()
+                              if k not in ('xaxis', 'yaxis')}
                 fig_map.update_layout(
-                    **JGP_PLOTLY_TEMPLATE['layout'],
+                    **geo_layout,
                     height=650,
                     margin=dict(t=20, b=20, l=20, r=20),
                     coloraxis_colorbar=dict(

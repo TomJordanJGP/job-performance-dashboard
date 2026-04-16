@@ -4,6 +4,7 @@
 --
 -- locations field format: "State, City, CountryCode" pipe-delimited for multi-location
 -- Example: "England, London, GB" or "England, Manchester, GB | England, Liverpool, GB"
+-- Also handles plain-text locations (e.g. just "London") by using the full string as town_city.
 
 CREATE OR REPLACE TABLE `site-monitoring-421401.job_data_export.vacancy_locations` AS
 
@@ -19,14 +20,15 @@ parsed AS (
   SELECT
     entity_id,
     raw_location,
-    -- Parse "State, City, CountryCode" format
+    -- Parse "State, City, CountryCode" format.
+    -- Plain-text locations (no commas) use the full string as town_city.
     CASE
       WHEN ARRAY_LENGTH(SPLIT(raw_location, ',')) >= 2
       THEN TRIM(SPLIT(raw_location, ',')[SAFE_OFFSET(1)])
-      ELSE NULL
+      ELSE TRIM(raw_location)
     END as town_city,
     CASE
-      WHEN ARRAY_LENGTH(SPLIT(raw_location, ',')) >= 1
+      WHEN ARRAY_LENGTH(SPLIT(raw_location, ',')) >= 2
       THEN TRIM(SPLIT(raw_location, ',')[SAFE_OFFSET(0)])
       ELSE NULL
     END as country_region
@@ -54,4 +56,6 @@ LEFT JOIN `site-monitoring-421401.job_data_export.location_lookup` loc_legacy
   AND UPPER(TRIM(p.town_city)) = UPPER(TRIM(loc_legacy.town_city))
 LEFT JOIN `site-monitoring-421401.job_data_export.region_canonical` rc_legacy
   ON LOWER(COALESCE(loc_legacy.region, '')) = rc_legacy.variant
-WHERE p.town_city IS NOT NULL AND TRIM(p.town_city) != '';
+WHERE p.town_city IS NOT NULL
+  AND TRIM(p.town_city) != ''
+  AND LOWER(TRIM(p.town_city)) NOT IN ('national', 'various', 'remote', 'flexible', 'uk', 'united kingdom', 'tbc', 'n/a');

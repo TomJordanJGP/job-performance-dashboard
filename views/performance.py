@@ -7,7 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 from data.calculations import calculate_metrics, calculate_quartile_metrics
-from data.filters import apply_filters_to_data
+from data.filters import apply_filters_to_data, apply_filters_to_region_data
 from data.regions import get_country_for_region, COUNTRY_REGIONS
 from theme.components import (
     kpi_card, page_header, filter_tags, section_header,
@@ -21,7 +21,7 @@ def _fmt(val):
     return f"{int(round(val)):,}"
 
 
-def render_performance(df):
+def render_performance(df, region_df=None):
     """Render the Performance page."""
 
     # Show active filter tags
@@ -126,7 +126,23 @@ def render_performance(df):
     if col_name in filtered_df.columns:
         benchmark_data = []
 
-        if dimension == 'Region':
+        if dimension == 'Region' and region_df is not None and 'uk_region' in region_df.columns:
+            # Use pre-exploded region table
+            filtered_region = apply_filters_to_region_data(region_df, st.session_state.get('global_filters'))
+            for value in sorted(filtered_region['uk_region'].dropna().unique()):
+                subset = filtered_region[filtered_region['uk_region'] == value]
+                m = calculate_metrics(subset)
+                benchmark_data.append({
+                    dimension: value,
+                    'Vacancies': m['num_vacancies'],
+                    'Total Clicks': int(round(m['total_clicks'])),
+                    'Total Applies': int(round(m['total_applies'])),
+                    'Apply/Click %': round(m['apply_click_ratio']),
+                    'Avg Clicks/Vac': round(m['mean_clicks_per_vacancy']),
+                    'Avg Applies/Vac': round(m['mean_applies_per_vacancy']),
+                })
+        elif dimension == 'Region':
+            # Fallback: pipe-split from vacancy summary
             all_values = set()
             for regions_str in filtered_df[col_name].dropna():
                 for r in str(regions_str).split(' | '):
@@ -191,32 +207,55 @@ def render_performance(df):
     st.markdown(branded_divider(), unsafe_allow_html=True)
 
     # === HEATMAP: Occupation x Region ===
-    if 'uk_regions' in filtered_df.columns and 'occupation' in filtered_df.columns:
+    has_heatmap_data = (
+        (region_df is not None and 'uk_region' in region_df.columns and 'occupation' in region_df.columns)
+        or ('uk_regions' in filtered_df.columns and 'occupation' in filtered_df.columns)
+    )
+    if has_heatmap_data:
         st.markdown(section_header("Performance Heatmap (Occupation x Region)", "grid-3x3-gap"), unsafe_allow_html=True)
 
         heatmap_data = []
-        all_regions = set()
-        for regions_str in filtered_df['uk_regions'].dropna():
-            for r in str(regions_str).split(' | '):
-                r = r.strip()
-                if r:
-                    all_regions.add(r)
 
-        for region in all_regions:
-            reg_mask = filtered_df['uk_regions'].apply(
-                lambda x, r=region: r in [rr.strip() for rr in str(x).split(' | ')] if pd.notna(x) else False
-            )
-            for occ in filtered_df['occupation'].unique():
-                subset = filtered_df[reg_mask & (filtered_df['occupation'] == occ)]
-                if len(subset) > 0:
-                    m = calculate_metrics(subset)
-                    heatmap_data.append({
-                        'Occupation': occ,
-                        'Region': region,
-                        'Clicks/Vacancy': round(m['clicks_per_vacancy']),
-                        'Applies/Vacancy': round(m['applies_per_vacancy']),
-                        'Apply/Click %': round(m['apply_click_ratio']),
-                    })
+        if region_df is not None and 'uk_region' in region_df.columns:
+            # Use pre-exploded region table
+            filtered_region = apply_filters_to_region_data(region_df, st.session_state.get('global_filters'))
+            for region in sorted(filtered_region['uk_region'].dropna().unique()):
+                reg_subset = filtered_region[filtered_region['uk_region'] == region]
+                for occ in reg_subset['occupation'].unique():
+                    subset = reg_subset[reg_subset['occupation'] == occ]
+                    if len(subset) > 0:
+                        m = calculate_metrics(subset)
+                        heatmap_data.append({
+                            'Occupation': occ,
+                            'Region': region,
+                            'Clicks/Vacancy': round(m['clicks_per_vacancy']),
+                            'Applies/Vacancy': round(m['applies_per_vacancy']),
+                            'Apply/Click %': round(m['apply_click_ratio']),
+                        })
+        else:
+            # Fallback: pipe-split from vacancy summary
+            all_regions = set()
+            for regions_str in filtered_df['uk_regions'].dropna():
+                for r in str(regions_str).split(' | '):
+                    r = r.strip()
+                    if r:
+                        all_regions.add(r)
+
+            for region in all_regions:
+                reg_mask = filtered_df['uk_regions'].apply(
+                    lambda x, r=region: r in [rr.strip() for rr in str(x).split(' | ')] if pd.notna(x) else False
+                )
+                for occ in filtered_df['occupation'].unique():
+                    subset = filtered_df[reg_mask & (filtered_df['occupation'] == occ)]
+                    if len(subset) > 0:
+                        m = calculate_metrics(subset)
+                        heatmap_data.append({
+                            'Occupation': occ,
+                            'Region': region,
+                            'Clicks/Vacancy': round(m['clicks_per_vacancy']),
+                            'Applies/Vacancy': round(m['applies_per_vacancy']),
+                            'Apply/Click %': round(m['apply_click_ratio']),
+                        })
 
         if heatmap_data:
             heatmap_df = pd.DataFrame(heatmap_data)

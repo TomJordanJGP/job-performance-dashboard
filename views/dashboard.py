@@ -347,7 +347,7 @@ def render_dashboard(df, daily_totals=None, region_df=None):
                 )
                 # Use only geo-compatible layout keys (no xaxis/yaxis)
                 geo_layout = {k: v for k, v in JGP_PLOTLY_TEMPLATE['layout'].items()
-                              if k not in ('xaxis', 'yaxis')}
+                              if k not in ('xaxis', 'yaxis', 'margin')}
                 fig_map.update_layout(
                     **geo_layout,
                     height=650,

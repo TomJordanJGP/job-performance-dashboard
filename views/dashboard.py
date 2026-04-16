@@ -1,13 +1,17 @@
 """Dashboard (Overview) page - at-a-glance health check."""
 
+import os
+import json
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
 from data.calculations import calculate_metrics, calculate_quartile_metrics
 from data.filters import apply_filters_to_data, apply_filters_to_region_data
 from data.regions import get_country_for_region, COUNTRY_REGIONS
 from theme.components import kpi_card, page_header, filter_tags, section_header, branded_divider
-from theme.colors import JGP_COLORS, JGP_PLOTLY_TEMPLATE
+from theme.colors import JGP_COLORS, JGP_PLOTLY_TEMPLATE, JGP_HEATMAP_COLORSCALE
 
 
 def _fmt(val):
@@ -142,6 +146,72 @@ def render_dashboard(df, daily_totals=None, region_df=None):
         )
         st.plotly_chart(fig, width='stretch')
 
+    # === VACANCY TREND BY SITE ===
+    if daily_totals is not None and len(daily_totals) > 0:
+        has_site_cols = all(c in daily_totals.columns for c in ['active_vacancies', 'active_jgp', 'active_lg'])
+        if has_site_cols:
+            st.markdown(branded_divider(), unsafe_allow_html=True)
+            st.markdown(section_header("Live Vacancies Over Time", "building"), unsafe_allow_html=True)
+            if has_active_filters:
+                st.caption("Vacancy counts show global site totals (not affected by filters).")
+
+            granularity = st.selectbox(
+                "View by", ["Daily", "Weekly", "Monthly"], key='vacancy_trend_granularity'
+            )
+
+            trend_data = daily_totals.copy()
+            trend_data['event_date'] = pd.to_datetime(trend_data['event_date'])
+            trend_data = trend_data.sort_values('event_date')
+
+            if granularity == 'Weekly':
+                trend_data['period'] = trend_data['event_date'].dt.to_period('W').apply(lambda p: p.start_time)
+                trend_data = trend_data.groupby('period', as_index=False).agg(
+                    active_vacancies=('active_vacancies', 'mean'),
+                    active_jgp=('active_jgp', 'mean'),
+                    active_lg=('active_lg', 'mean'),
+                ).rename(columns={'period': 'event_date'})
+            elif granularity == 'Monthly':
+                trend_data['period'] = trend_data['event_date'].dt.to_period('M').apply(lambda p: p.start_time)
+                trend_data = trend_data.groupby('period', as_index=False).agg(
+                    active_vacancies=('active_vacancies', 'mean'),
+                    active_jgp=('active_jgp', 'mean'),
+                    active_lg=('active_lg', 'mean'),
+                ).rename(columns={'period': 'event_date'})
+
+            trend_data = trend_data.sort_values('event_date')
+            for col in ['active_vacancies', 'active_jgp', 'active_lg']:
+                trend_data[col] = trend_data[col].round().astype(int)
+
+            fig_vac = go.Figure()
+            fig_vac.add_trace(go.Bar(
+                x=trend_data['event_date'],
+                y=trend_data['active_jgp'],
+                name='Jobs Go Public',
+                marker_color=JGP_COLORS['primary'],
+            ))
+            fig_vac.add_trace(go.Bar(
+                x=trend_data['event_date'],
+                y=trend_data['active_lg'],
+                name='LG Jobs',
+                marker_color=JGP_COLORS['deep_green'],
+            ))
+            fig_vac.add_trace(go.Scatter(
+                x=trend_data['event_date'],
+                y=trend_data['active_vacancies'],
+                name='Total (deduplicated)',
+                line=dict(color=JGP_COLORS['amber'], width=3),
+                mode='lines',
+            ))
+            fig_vac.update_layout(
+                **JGP_PLOTLY_TEMPLATE['layout'],
+                height=450,
+                barmode='stack',
+                hovermode='x unified',
+                xaxis_title=None,
+                yaxis_title='Live Vacancies',
+            )
+            st.plotly_chart(fig_vac, width='stretch')
+
     st.markdown(branded_divider(), unsafe_allow_html=True)
 
     # Job Listings by Country / Region
@@ -207,4 +277,82 @@ def render_dashboard(df, daily_totals=None, region_df=None):
                     barmode='group',
                 )
                 st.plotly_chart(fig, width='stretch')
+
+    # === UK REGION HEATMAP ===
+    if region_df is not None and 'uk_region' in region_df.columns:
+        geojson_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'uk_regions.geojson')
+        if os.path.exists(geojson_path):
+            st.markdown(branded_divider(), unsafe_allow_html=True)
+            st.markdown(section_header("UK Region Heatmap", "map"), unsafe_allow_html=True)
+
+            filtered_region = apply_filters_to_region_data(region_df, st.session_state.get('global_filters'))
+
+            # Aggregate metrics per region
+            map_data = []
+            for rgn in filtered_region['uk_region'].dropna().unique():
+                if rgn in ('Unknown', 'Overseas Territory'):
+                    continue
+                rgn_df = filtered_region[filtered_region['uk_region'] == rgn]
+                vacancies = rgn_df['entity_id'].nunique() if 'entity_id' in rgn_df.columns else len(rgn_df)
+                clients = rgn_df['organization_name'].nunique() if 'organization_name' in rgn_df.columns else 0
+
+                vac_2025 = 0
+                vac_2026 = 0
+                if 'start_date' in rgn_df.columns:
+                    sd = rgn_df['start_date']
+                    if pd.api.types.is_datetime64_any_dtype(sd):
+                        vac_2025 = rgn_df[sd.dt.year == 2025]['entity_id'].nunique() if 'entity_id' in rgn_df.columns else 0
+                        vac_2026 = rgn_df[sd.dt.year == 2026]['entity_id'].nunique() if 'entity_id' in rgn_df.columns else 0
+
+                total_clicks = int(rgn_df['clicks'].sum()) if 'clicks' in rgn_df.columns else 0
+                total_applies = int(rgn_df['applies'].sum()) if 'applies' in rgn_df.columns else 0
+
+                map_data.append({
+                    'region': rgn,
+                    'Vacancies': vacancies,
+                    'Clients': clients,
+                    'Vacancies (2025)': vac_2025,
+                    'Vacancies (2026)': vac_2026,
+                    'Total Clicks': total_clicks,
+                    'Total Applies': total_applies,
+                })
+
+            if map_data:
+                map_df = pd.DataFrame(map_data)
+
+                with open(geojson_path) as f:
+                    uk_geojson = json.load(f)
+
+                fig_map = px.choropleth(
+                    map_df,
+                    geojson=uk_geojson,
+                    locations='region',
+                    featureidkey='properties.region',
+                    color='Vacancies',
+                    color_continuous_scale=JGP_HEATMAP_COLORSCALE,
+                    hover_name='region',
+                    hover_data={
+                        'region': False,
+                        'Vacancies': ':,',
+                        'Clients': ':,',
+                        'Vacancies (2025)': ':,',
+                        'Vacancies (2026)': ':,',
+                        'Total Clicks': ':,',
+                        'Total Applies': ':,',
+                    },
+                )
+                fig_map.update_geos(
+                    fitbounds='locations',
+                    visible=False,
+                )
+                fig_map.update_layout(
+                    **JGP_PLOTLY_TEMPLATE['layout'],
+                    height=650,
+                    margin=dict(t=20, b=20, l=20, r=20),
+                    coloraxis_colorbar=dict(
+                        title='Vacancies',
+                        thickness=15,
+                    ),
+                )
+                st.plotly_chart(fig_map, width='stretch')
 

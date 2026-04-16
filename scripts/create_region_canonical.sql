@@ -79,10 +79,10 @@ WITH variants AS (
   SELECT 'overseas territory', 'Overseas Territory' UNION ALL
   SELECT 'british overseas territory', 'Overseas Territory' UNION ALL
 
-  -- Crown dependencies (map to closest or leave as-is)
-  SELECT 'jersey', 'Channel Islands' UNION ALL
-  SELECT 'guernsey', 'Channel Islands' UNION ALL
-  SELECT 'isle of man', 'Isle of Man'
+  -- Crown dependencies
+  SELECT 'jersey', 'Overseas Territory' UNION ALL
+  SELECT 'guernsey', 'Overseas Territory' UNION ALL
+  SELECT 'isle of man', 'Overseas Territory'
 )
 
 SELECT variant, canonical_region

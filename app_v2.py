@@ -2317,6 +2317,177 @@ def generate_section_commentary(section, data):
     return fallback
 
 
+def generate_section_commentary_structured(section, data):
+    """Structured commentary for PPTX template — returns dict with intro + bullet points.
+
+    Returns: dict with keys 'intro', 'point_1', 'point_2', 'point_3' (last is optional).
+    Each value is plain text (no markdown). Empty string for unused points.
+    """
+    def _clean(text):
+        """Strip markdown bold markers."""
+        import re
+        return re.sub(r'\*\*(.+?)\*\*', r'\1', text or '')
+
+    if section == 'benchmark_scatter':
+        total = data.get('total_count', 0)
+        benchmarkable = data.get('benchmarkable_count', 0)
+        zero_applies = data.get('zero_applies_count', 0)
+        no_benchmark = data.get('no_benchmark_count', 0)
+        top_performers = data.get('top_performers', [])
+        client_name = data.get('client_name', 'This client')
+
+        if total == 0:
+            return {'intro': 'Insufficient data for commentary.', 'point_1': '', 'point_2': '', 'point_3': ''}
+
+        intro = (f"{client_name} posted {total} vacancies during this period. "
+                 f"Of these, {benchmarkable} have sufficient market data to benchmark against comparable public sector roles.")
+
+        point_1 = ''
+        if top_performers:
+            top = top_performers[0]
+            point_1 = (f"{top['title']} ({top['occupation']}) is the standout performer, "
+                       f"exceeding the benchmark by {top['views_diff_pct']:+.0f}% on views and "
+                       f"{top['applies_diff_pct']:+.0f}% on applies.")
+
+        point_2 = ''
+        if zero_applies > 0:
+            pct = zero_applies / total * 100 if total > 0 else 0
+            point_2 = (f"{zero_applies} role{'s' if zero_applies != 1 else ''} ({pct:.0f}% of total) "
+                       f"received zero apply clicks — these may benefit from revised job descriptions or enhanced visibility.")
+
+        point_3 = ''
+        if no_benchmark > 0:
+            point_3 = (f"{no_benchmark} role{'s' if no_benchmark != 1 else ''} could not be benchmarked "
+                       f"due to low market sample sizes in their occupation category.")
+
+        return {'intro': _clean(intro), 'point_1': _clean(point_1), 'point_2': _clean(point_2), 'point_3': _clean(point_3)}
+
+    elif section == 'benchmark_average':
+        client_clicks = data.get('client_avg_clicks', 0)
+        bench_clicks = data.get('benchmark_avg_clicks', 0)
+        client_applies = data.get('client_avg_applies', 0)
+        bench_applies = data.get('benchmark_avg_applies', 0)
+        num_jobs = data.get('num_jobs', 0)
+        client_name = data.get('client_name', 'This client')
+
+        if num_jobs == 0 or bench_clicks == 0:
+            return {'intro': 'Insufficient data for commentary.', 'point_1': '', 'point_2': ''}
+
+        views_diff = ((client_clicks - bench_clicks) / bench_clicks) * 100
+        intro = (f"Across {num_jobs} vacancies, {client_name} averaged {client_clicks:,.0f} views "
+                 f"and {client_applies:,.1f} applies per role.")
+
+        views_word = "more" if views_diff >= 0 else "fewer"
+        point_1 = (f"Your vacancies received {abs(views_diff):.0f}% {views_word} views than the market average — "
+                   f"{'indicating strong visibility across the platform' if views_diff >= 0 else 'suggesting opportunities to improve listing visibility'}.")
+
+        point_2 = ''
+        if bench_applies > 0:
+            applies_diff = ((client_applies - bench_applies) / bench_applies) * 100
+            applies_word = "above" if applies_diff >= 0 else "below"
+            tone = ('reflecting strong candidate engagement' if applies_diff >= 10
+                    else 'suggesting job descriptions may benefit from enhancement' if applies_diff < -10
+                    else 'broadly in line with market expectations')
+            point_2 = f"Apply rates sit {abs(applies_diff):.0f}% {applies_word} benchmark, {tone}."
+
+        return {'intro': _clean(intro), 'point_1': _clean(point_1), 'point_2': _clean(point_2)}
+
+    elif section == 'postings':
+        total_jobs = data.get('total_jobs', 0)
+        total_applies = data.get('total_applies', 0)
+        by_type = data.get('by_type')
+        client_name = data.get('client_name', 'This client')
+
+        if total_jobs == 0 or by_type is None or len(by_type) == 0:
+            return {'intro': 'Insufficient data for commentary.', 'point_1': '', 'point_2': ''}
+
+        sorted_by_applies = by_type.sort_values('apply_clicks', ascending=False)
+        top = sorted_by_applies.iloc[0]
+        intro = (f"{client_name} posted {total_jobs} vacancies generating {total_applies:,} apply clicks across "
+                 f"{len(by_type)} occupation categories.")
+
+        point_1 = (f"{top['occupation']} leads apply generation with {int(top['apply_clicks']):,} apply clicks across "
+                   f"{int(top['jobs_posted'])} postings — your strongest performing category.")
+
+        point_2 = ''
+        if len(by_type) > 1:
+            bottom = sorted_by_applies.iloc[-1]
+            if int(bottom['apply_clicks']) == 0:
+                point_2 = (f"{bottom['occupation']} received no apply clicks despite {int(bottom['jobs_posted'])} postings — "
+                           f"these roles may benefit from revised titles or enhanced descriptions.")
+            else:
+                point_2 = (f"{bottom['occupation']} generated the fewest applies ({int(bottom['apply_clicks']):,}) "
+                           f"and may warrant targeted improvements.")
+
+        return {'intro': _clean(intro), 'point_1': _clean(point_1), 'point_2': _clean(point_2)}
+
+    elif section == 'roi':
+        annual_spend = data.get('annual_spend', 0)
+        rate_card_total = data.get('rate_card_total', 0)
+        num_jobs = data.get('num_jobs', 0)
+        cost_per_apply = data.get('cost_per_apply', 0)
+        saving_pct = data.get('saving_pct', 0)
+        roi_by_type = data.get('roi_by_type')
+
+        if annual_spend == 0 or num_jobs == 0:
+            return {'intro': 'Enter your annual spend and rate card price to generate ROI commentary.',
+                    'point_1': '', 'point_2': ''}
+
+        saving_amount = rate_card_total - annual_spend
+        intro = (f"Across {num_jobs} vacancies, your subscription delivered £{saving_amount:,.0f} of value "
+                 f"compared to rate card pricing — a {saving_pct:.0f}% saving.")
+
+        point_1 = (f"At £{cost_per_apply:,.2f} per apply, each candidate enquiry represents a "
+                   f"cost-effective acquisition channel for {data.get('client_name', 'your team')}.")
+
+        point_2 = ''
+        if roi_by_type is not None and len(roi_by_type) > 1:
+            best = roi_by_type.iloc[0]
+            worst = roi_by_type.iloc[-1]
+            point_2 = (f"{best['occupation']} achieves the best cost efficiency at £{best['cost_per_apply']:,.2f} per apply, "
+                       f"while {worst['occupation']} is the most expensive at £{worst['cost_per_apply']:,.2f}.")
+
+        return {'intro': _clean(intro), 'point_1': _clean(point_1), 'point_2': _clean(point_2)}
+
+    elif section == 'media':
+        cat_stats = data.get('cat_stats')
+        client_name = data.get('client_name', 'This client')
+
+        if cat_stats is None or len(cat_stats) == 0:
+            return {'intro': 'Media source data is not yet available for this client.',
+                    'point_1': '', 'point_2': '', 'point_3': ''}
+
+        sorted_stats = cat_stats.sort_values('total_applies', ascending=False)
+        top_source = sorted_stats.iloc[0]
+        intro = (f"{client_name}'s vacancies received traffic from {len(cat_stats)} distinct channels. "
+                 f"{top_source['source_category']} is the leading source, generating "
+                 f"{int(top_source['total_applies']):,} applies from {int(top_source['total_clicks']):,} views.")
+
+        best_conv = cat_stats.loc[cat_stats['conversion_rate'].idxmax()]
+        point_1 = ''
+        if best_conv['conversion_rate'] > 0:
+            point_1 = (f"{best_conv['source_category']} achieves the highest view-to-apply conversion rate at "
+                       f"{best_conv['conversion_rate']:.1f}%, indicating well-matched candidates from this channel.")
+
+        paid_rows = cat_stats[cat_stats['source_category'].str.contains('Paid|PPC|Sponsored', case=False, na=False)]
+        point_2 = ''
+        if len(paid_rows) > 0:
+            paid = paid_rows.iloc[0]
+            point_2 = (f"Paid channels ({paid['source_category']}) contributed {int(paid['total_applies']):,} applies "
+                       f"with a {paid['conversion_rate']:.1f}% conversion rate.")
+
+        point_3 = ''
+        if len(cat_stats) > 1:
+            second_source = sorted_stats.iloc[1] if len(sorted_stats) > 1 else None
+            if second_source is not None:
+                point_3 = (f"{second_source['source_category']} is the second strongest channel with "
+                           f"{int(second_source['total_applies']):,} applies — providing diversified candidate flow.")
+
+        return {'intro': _clean(intro), 'point_1': _clean(point_1), 'point_2': _clean(point_2), 'point_3': _clean(point_3)}
+
+    return {'intro': 'No commentary available.', 'point_1': '', 'point_2': '', 'point_3': ''}
+
+
 # ============================================================================
 # CLIENT REPORT TAB
 # ============================================================================
@@ -2882,20 +3053,116 @@ def create_client_report_tab(df, media_df=None):
     st.markdown("---")
 
     # ===================================================================
-    # PDF EXPORT
+    # POWERPOINT EXPORT
     # ===================================================================
     st.subheader("Export Report")
 
-    # Build commentary strings for PDF
-    scatter_commentary = generate_section_commentary('scatter', {
+    # --- Compute additional stats needed for PPTX template ---
+
+    # Slide 2: Top-right quadrant % (vacancies above benchmark on BOTH views and applies)
+    benchmarkable_df = scatter_df[scatter_df['category'] == 'Benchmarkable']
+    if len(benchmarkable_df) > 0:
+        top_quadrant_count = len(benchmarkable_df[
+            (benchmarkable_df['views_diff_pct'] > 0) & (benchmarkable_df['applies_diff_pct'] > 0)
+        ])
+        top_quadrant_pct = (top_quadrant_count / len(benchmarkable_df)) * 100
+    else:
+        top_quadrant_pct = 0
+
+    # Slide 2: Strongest job category (highest combined diff score, benchmarkable only)
+    if len(benchmarkable_df) > 0:
+        category_scores = benchmarkable_df.groupby('occupation').agg(
+            combined_score=('views_diff_pct', lambda s: s.mean() + benchmarkable_df.loc[s.index, 'applies_diff_pct'].mean()),
+            count=('views_diff_pct', 'count')
+        ).reset_index()
+        # Need at least 2 vacancies in occupation for the category to be considered "strongest"
+        category_scores = category_scores[category_scores['count'] >= 2]
+        if len(category_scores) > 0:
+            top_category = category_scores.sort_values('combined_score', ascending=False).iloc[0]['occupation']
+        else:
+            top_category = benchmarkable_df.iloc[0]['occupation'] if len(benchmarkable_df) > 0 else 'N/A'
+    else:
+        top_category = 'N/A'
+
+    # Slide 5: Build the new charts (only if spend entered)
+    rate_card_total_val = rate_card_price * num_jobs if annual_spend > 0 else 0
+    saving_pct_val = ((rate_card_total_val - annual_spend) / rate_card_total_val * 100) if rate_card_total_val > 0 else 0
+
+    if annual_spend > 0:
+        # Stacked bar: Your Spend (bottom) + Saving (top) = Rate Card Total
+        saving_amount = max(rate_card_total_val - annual_spend, 0)
+        fig_spend_stack = go.Figure()
+        fig_spend_stack.add_trace(go.Bar(
+            x=['Total Value'],
+            y=[annual_spend],
+            name='Your Spend',
+            marker_color=JGP_COLORS['primary'],
+            text=[f"£{annual_spend:,.0f}"],
+            textposition='inside',
+            textfont=dict(color='white', size=14),
+        ))
+        fig_spend_stack.add_trace(go.Bar(
+            x=['Total Value'],
+            y=[saving_amount],
+            name='Saving vs Rate Card',
+            marker_color=JGP_COLORS['accent'],
+            text=[f"£{saving_amount:,.0f}"],
+            textposition='inside',
+            textfont=dict(color=JGP_COLORS['deep_blue'], size=14),
+        ))
+        fig_spend_stack.update_layout(
+            barmode='stack',
+            title=f"Your Spend vs Rate Card Value (Saving: {saving_pct_val:.0f}%)",
+            yaxis_title="GBP",
+            height=400,
+            showlegend=True,
+            plot_bgcolor='rgba(0,0,0,0)',
+            legend=dict(orientation='h', y=-0.15),
+        )
+        report_figures['spend_vs_ratecard'] = fig_spend_stack
+
+    # Cost per apply by occupation chart (always built when spend > 0)
+    cpa_by_occ_fig = None
+    if annual_spend > 0:
+        roi_by_type_full = client_df.groupby('occupation').agg(
+            total_applies=('applies', 'sum'),
+            job_count=('clicks', 'count')
+        ).reset_index()
+        roi_by_type_full = roi_by_type_full[roi_by_type_full['total_applies'] > 0]
+        if len(roi_by_type_full) > 0:
+            roi_by_type_full['cost_allocated'] = annual_spend * (roi_by_type_full['job_count'] / roi_by_type_full['job_count'].sum())
+            roi_by_type_full['cost_per_apply'] = roi_by_type_full['cost_allocated'] / roi_by_type_full['total_applies']
+            roi_by_type_full = roi_by_type_full.sort_values('cost_per_apply', ascending=True)
+
+            cpa_by_occ_fig = go.Figure()
+            cpa_by_occ_fig.add_trace(go.Bar(
+                y=roi_by_type_full['occupation'],
+                x=roi_by_type_full['cost_per_apply'],
+                orientation='h',
+                marker_color=JGP_COLORS['amber'],
+                text=roi_by_type_full['cost_per_apply'].apply(lambda x: f"£{x:,.2f}"),
+                textposition='outside',
+                textfont=dict(color=JGP_COLORS['deep_blue']),
+            ))
+            cpa_by_occ_fig.update_layout(
+                title="Cost per Apply by Occupation",
+                height=max(350, len(roi_by_type_full) * 32),
+                xaxis_title="Cost per Apply (GBP)",
+                yaxis_title="",
+                plot_bgcolor='rgba(0,0,0,0)',
+            )
+            report_figures['cost_per_app_by_occupation'] = cpa_by_occ_fig
+
+    # --- Build structured commentary for PPTX template ---
+    scatter_struct = generate_section_commentary_structured('benchmark_scatter', {
         'total_count': len(scatter_df),
         'benchmarkable_count': len(scatter_df[scatter_df['category'] == 'Benchmarkable']),
         'zero_applies_count': len(scatter_df[scatter_df['category'].str.startswith('Zero')]),
         'no_benchmark_count': len(scatter_df[scatter_df['category'] == 'Low Sample (No Benchmark)']),
         'top_performers': top_performers,
-        'worst_performers': worst_performers,
+        'client_name': selected_client,
     })
-    bench_commentary_text = generate_section_commentary('benchmark', {
+    average_struct = generate_section_commentary_structured('benchmark_average', {
         'client_avg_clicks': client_avg_clicks,
         'benchmark_avg_clicks': benchmark_avg_clicks,
         'client_avg_applies': client_avg_applies,
@@ -2903,327 +3170,236 @@ def create_client_report_tab(df, media_df=None):
         'num_jobs': len(client_df),
         'client_name': selected_client,
     })
-    postings_commentary_text = generate_section_commentary('postings', {
+    postings_struct = generate_section_commentary_structured('postings', {
         'total_jobs': len(client_df),
         'total_applies': int(client_df['applies'].sum()),
         'by_type': by_type,
         'client_name': selected_client,
     })
-    roi_commentary_text = ""
-    saving_pct_val = 0
-    if annual_spend > 0:
-        rate_card_total_val = rate_card_price * num_jobs
-        saving_pct_val = ((rate_card_total_val - annual_spend) / rate_card_total_val * 100) if rate_card_total_val > 0 else 0
-        roi_commentary_text = generate_section_commentary('roi', {
-            'annual_spend': annual_spend,
-            'rate_card_price': rate_card_price,
-            'num_jobs': num_jobs,
-            'total_clicks': total_clicks,
-            'total_applies': total_applies_val,
-            'cost_per_job': annual_spend / num_jobs if num_jobs > 0 else 0,
-            'cost_per_view': annual_spend / total_clicks if total_clicks > 0 else 0,
-            'cost_per_apply': annual_spend / total_applies_val if total_applies_val > 0 else 0,
-            'saving_pct': saving_pct_val,
-            'roi_by_type': None,
-        })
-    media_commentary_text = generate_section_commentary('media', {
+    roi_struct = generate_section_commentary_structured('roi', {
+        'annual_spend': annual_spend,
+        'rate_card_total': rate_card_total_val,
+        'num_jobs': num_jobs,
+        'cost_per_apply': annual_spend / total_applies_val if total_applies_val > 0 else 0,
+        'saving_pct': saving_pct_val,
+        'roi_by_type': roi_by_type_full if (annual_spend > 0 and 'roi_by_type_full' in dir() and roi_by_type_full is not None and len(roi_by_type_full) > 0) else None,
+        'client_name': selected_client,
+    })
+    media_struct = generate_section_commentary_structured('media', {
         'cat_stats': cat_stats,
         'client_name': selected_client,
     })
 
+    # --- Build report_metrics dict (matches template tag names) ---
     report_metrics = {
+        # Slide 1
         'client_name': selected_client,
-        'report_start': str(report_start),
-        'report_end': str(report_end),
-        'num_jobs': num_jobs,
-        'total_clicks': total_clicks,
-        'total_applies': total_applies_val,
-        'benchmark_avg_clicks': benchmark_avg_clicks,
-        'benchmark_avg_applies': benchmark_avg_applies,
-        'client_avg_clicks': client_avg_clicks,
-        'client_avg_applies': client_avg_applies,
-        'annual_spend': annual_spend,
-        'rate_card_price': rate_card_price,
-        # Commentary for PDF
-        'scatter_commentary': scatter_commentary,
-        'benchmark_commentary': bench_commentary_text,
-        'postings_commentary': postings_commentary_text,
-        'roi_commentary': roi_commentary_text,
-        'media_commentary': media_commentary_text,
-        # Contact details for PDF
-        'contact_name': contact_name,
-        'contact_title': contact_title,
-        'contact_email': contact_email,
-        'contact_phone': contact_phone,
+        'PERIOD_START': str(report_start),
+        'PERIOD_END': str(report_end),
+
+        # Slide 2 stats
+        'stat_total_jobs': f"{num_jobs:,}",
+        'stat_top_quadrant_pct': f"{top_quadrant_pct:.0f}",
+        'stat_top_category': top_category,
+
+        # Slide 2 commentary
+        'commentary_benchmark_intro': scatter_struct['intro'],
+        'commentary_benchmark_point_1': scatter_struct['point_1'],
+        'commentary_benchmark_point_2': scatter_struct['point_2'],
+        'commentary_benchmark_point_3': scatter_struct['point_3'],
+
+        # Slide 3 stats
+        'stat_benchmark_average_views': f"{benchmark_avg_clicks:,.0f}",
+        'stat_your_jobs_average_views': f"{client_avg_clicks:,.0f}",
+        'stat_benchmark_average_applies': f"{benchmark_avg_applies:,.1f}",
+        'stat_your_jobs_average_applies': f"{client_avg_applies:,.1f}",
+
+        # Slide 3 commentary
+        'commentary_average_intro': average_struct['intro'],
+        'commentary_average_point_1': average_struct['point_1'],
+        'commentary_average_point_2': average_struct['point_2'],
+
+        # Slide 4 commentary
+        'commentary_postings_intro': postings_struct['intro'],
+        'commentary_postings_point_1': postings_struct['point_1'],
+        'commentary_postings_point_2': postings_struct['point_2'],
+
+        # Slide 5 stats (ROI)
+        'stat_cost_per_job': f"£{annual_spend / num_jobs:,.2f}" if (annual_spend > 0 and num_jobs > 0) else "—",
+        'stat_cost_per_view': f"£{annual_spend / total_clicks:,.2f}" if (annual_spend > 0 and total_clicks > 0) else "—",
+        'stat_cost_per_apply': f"£{annual_spend / total_applies_val:,.2f}" if (annual_spend > 0 and total_applies_val > 0) else "—",
+
+        # Slide 5 commentary
+        'commentary_roi_intro': roi_struct['intro'],
+        'commentary_roi_point_1': roi_struct['point_1'],
+        'commentary_roi_point_2': roi_struct['point_2'],
+
+        # Slide 6 commentary
+        'commentary_media_intro': media_struct['intro'],
+        'commentary_media_point_1': media_struct['point_1'],
+        'commentary_media_point_2': media_struct['point_2'],
+        'commentary_media_point_3': media_struct['point_3'],
+
+        # Slide 7 contact
+        'contact_name': contact_name or 'Your Account Manager',
+        'contact_title': contact_title or 'Account Director',
+        'contact_email': contact_email or 'team@jobsgopublic.com',
+        'contact_phone': contact_phone or '020 7427 8250',
     }
 
+    # --- Map template chart tags to figures ---
+    pptx_figures = {
+        'benchmark_scatter': report_figures.get('scatter'),
+        'benchmark_average': report_figures.get('benchmark_combined'),
+        'postings_by_type': report_figures.get('postings'),
+        'spend_vs_ratecard': report_figures.get('spend_vs_ratecard'),
+        'cost_per_app_by_occupation': report_figures.get('cost_per_app_by_occupation'),
+        'media_performance': report_figures.get('media'),
+    }
+
+    # --- Generate PPTX and offer download ---
+    template_path = 'Renewals.pptx'
     try:
-        pdf_bytes = generate_client_report_pdf(report_metrics, report_figures)
+        pptx_bytes = generate_client_report_pptx(report_metrics, pptx_figures, template_path)
         st.download_button(
-            "Download PDF Report",
-            data=pdf_bytes,
-            file_name=f"advertising_report_{selected_client.replace(' ', '_')}_{report_start}_{report_end}.pdf",
-            mime="application/pdf",
+            "Download PowerPoint Report",
+            data=pptx_bytes,
+            file_name=f"advertising_report_{selected_client.replace(' ', '_')}_{report_start}_{report_end}.pptx",
+            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             type="primary"
         )
+        st.caption("Download the PowerPoint, edit any commentary you'd like, then File → Export → PDF for the final client copy.")
+    except FileNotFoundError:
+        st.error(f"Template file not found at `{template_path}`. Make sure `Renewals.pptx` is in the project root.")
     except Exception as e:
-        st.warning(f"PDF generation requires `fpdf2` and `kaleido`. Install with: `pip install fpdf2 kaleido`")
-        st.caption(f"Error: {e}")
+        st.warning("PowerPoint generation requires `python-pptx` and `kaleido`.")
+        st.caption(f"Error: {type(e).__name__}: {e}")
 
 
-def generate_client_report_pdf(metrics, figures):
-    """Generate a branded landscape PDF report with JGP colours, commentary, and contact page."""
-    from fpdf import FPDF
-    from theme.colors import JGP_COLORS
+def generate_client_report_pptx(metrics, figures, template_path):
+    """Generate a PowerPoint report by filling a branded template.
+
+    Args:
+        metrics: dict mapping placeholder names (without {{}}) to string values
+        figures: dict mapping chart slot names (e.g. 'benchmark_scatter') to plotly figures
+        template_path: path to the .pptx template file
+
+    Returns: bytes of the populated .pptx file.
+
+    Replaces text placeholders like {{tag_name}} with metrics[tag_name].
+    Replaces chart placeholders like {{chart:slot_name}} with PNG images of figures[slot_name].
+    """
+    from pptx import Presentation
+    from pptx.util import Emu
     import io
     import re
+    import copy
 
-    def hex_to_rgb(hex_color):
-        h = hex_color.lstrip('#')
-        return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+    prs = Presentation(template_path)
 
-    primary_rgb = hex_to_rgb(JGP_COLORS['primary'])
-    accent_rgb = hex_to_rgb(JGP_COLORS['accent'])
-    deep_blue_rgb = hex_to_rgb(JGP_COLORS['deep_blue'])
-    beige_rgb = hex_to_rgb(JGP_COLORS['beige'])
-    white_rgb = (255, 255, 255)
+    # --- Helper: render a Plotly figure to PNG bytes ---
+    def _fig_to_png(fig, width=1600, height=900):
+        """Render a Plotly figure to white-background PNG bytes."""
+        if fig is None:
+            return None
+        try:
+            import plotly.graph_objects as go_local
+            fig_export = go_local.Figure(fig.to_dict())
+            fig_export.update_layout(
+                paper_bgcolor='white',
+                plot_bgcolor='white',
+                font=dict(size=18),
+                margin=dict(l=120, r=40, t=60, b=80),
+            )
+            return fig_export.to_image(format='png', width=width, height=height, scale=1)
+        except Exception:
+            return None
 
-    # Landscape A4: 297 x 210 mm
-    PAGE_W = 297
-    PAGE_H = 210
-    MARGIN = 15
-    CONTENT_W = PAGE_W - 2 * MARGIN  # 267mm usable
+    # --- Helper: replace text in a single shape's text frame, preserving formatting ---
+    def _replace_text_in_shape(shape, replacements):
+        """Walk runs/paragraphs and replace {{tag}} occurrences. Handles tags split across runs."""
+        if not shape.has_text_frame:
+            return
+        tf = shape.text_frame
+        for paragraph in tf.paragraphs:
+            # First try simple per-run replacement (works when tag is fully in one run)
+            for run in paragraph.runs:
+                text = run.text
+                if '{{' in text:
+                    for tag, val in replacements.items():
+                        placeholder = '{{' + tag + '}}'
+                        if placeholder in text:
+                            text = text.replace(placeholder, str(val))
+                    run.text = text
 
-    class ReportPDF(FPDF):
-        def header(self):
-            if self.page_no() == 1:
-                return
-            self.set_fill_color(*primary_rgb)
-            self.rect(0, 0, PAGE_W, 12, 'F')
-            self.set_text_color(*white_rgb)
-            self.set_font('Helvetica', 'B', 7)
-            self.set_xy(MARGIN, 1)
-            self.cell(0, 10, 'ADVERTISING REPORT', align='L')
-            self.set_xy(MARGIN, 1)
-            self.cell(CONTENT_W, 10, metrics['client_name'].upper(), align='R')
-            self.set_text_color(0, 0, 0)
-            self.set_y(16)
+            # Fallback: if a tag spans multiple runs, the above won't catch it.
+            # Concatenate paragraph text, replace, and put it all in the first run.
+            full_text = ''.join(r.text for r in paragraph.runs)
+            if '{{' in full_text and any('{{' + tag + '}}' in full_text for tag in replacements):
+                new_text = full_text
+                for tag, val in replacements.items():
+                    new_text = new_text.replace('{{' + tag + '}}', str(val))
+                if new_text != full_text:
+                    if paragraph.runs:
+                        paragraph.runs[0].text = new_text
+                        for r in paragraph.runs[1:]:
+                            r.text = ''
 
-        def footer(self):
-            if self.page_no() == 1:
-                return
-            self.set_y(-10)
-            self.set_font('Helvetica', 'I', 7)
-            self.set_text_color(150, 150, 150)
-            self.cell(0, 10, f'Page {self.page_no()}/{{nb}}  |  {metrics["report_start"]} to {metrics["report_end"]}', align='C')
+    # --- Step 1: Find all chart placeholders, capture position/size, queue for replacement ---
+    # We do this before text replacement so we can find {{chart:xxx}} markers.
+    chart_replacements = []  # list of (slide, shape, slot_name)
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                text = shape.text_frame.text
+                m = re.search(r'\{\{chart:([^}]+)\}\}', text)
+                if m:
+                    chart_replacements.append((slide, shape, m.group(1)))
 
-        def section_title(self, title):
-            self.set_font('Helvetica', 'B', 20)
-            self.set_text_color(*deep_blue_rgb)
-            self.cell(0, 10, title, new_x="LMARGIN", new_y="NEXT")
-            self.set_fill_color(*primary_rgb)
-            self.rect(MARGIN, self.get_y(), 60, 1.5, 'F')
-            self.ln(4)
+    # --- Step 2: Replace text placeholders on every shape across all slides ---
+    # Build the text replacements dict (skip chart tags, those are handled separately)
+    text_replacements = {k: v for k, v in metrics.items()}
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            _replace_text_in_shape(shape, text_replacements)
 
-        def kpi_row(self, kpis):
-            """Render a row of KPI cards."""
-            col_width = (CONTENT_W - 5 * (len(kpis) - 1)) / len(kpis)
-            start_x = MARGIN
-            y = self.get_y()
-            for i, (label, value) in enumerate(kpis):
-                x = start_x + i * (col_width + 5)
-                self.set_fill_color(*beige_rgb)
-                self.rect(x, y, col_width, 16, 'F')
-                self.set_fill_color(*primary_rgb)
-                self.rect(x, y, col_width, 1.5, 'F')
-                self.set_xy(x + 3, y + 3)
-                self.set_font('Helvetica', '', 7)
-                self.set_text_color(100, 100, 100)
-                self.cell(col_width - 6, 4, label, align='L')
-                self.set_xy(x + 3, y + 8)
-                self.set_font('Helvetica', 'B', 12)
-                self.set_text_color(*deep_blue_rgb)
-                self.cell(col_width - 6, 6, str(value), align='L')
-            self.set_y(y + 20)
+    # --- Step 3: Replace chart placeholders with images ---
+    for slide, shape, slot_name in chart_replacements:
+        fig = figures.get(slot_name)
+        # Capture original geometry before deleting the shape
+        left, top, width, height = shape.left, shape.top, shape.width, shape.height
 
-        def add_commentary(self, commentary_key):
-            """Add commentary text below current position, full width."""
-            text = metrics.get(commentary_key, '')
-            if not text:
-                return
-            clean = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
-            self.set_font('Helvetica', '', 10)
-            self.set_text_color(50, 50, 50)
-            self.set_x(MARGIN)
-            self.multi_cell(CONTENT_W, 5.5, clean, align='L')
-            self.ln(3)
+        # Remove the placeholder shape
+        sp = shape._element
+        sp.getparent().remove(sp)
 
-        def add_chart(self, fig_key, chart_h=None, img_w=1400, img_h=700):
-            """Add a chart image below current position, sized to fit remaining page space."""
-            if fig_key not in figures:
-                return
-            try:
-                fig = figures[fig_key]
-                fig_copy = fig.to_dict()
-                import plotly.graph_objects as go_local
-                fig_export = go_local.Figure(fig_copy)
-                fig_export.update_layout(
-                    paper_bgcolor='white', plot_bgcolor='white',
-                    margin=dict(l=100, r=30, t=40, b=50),
-                    font=dict(size=14),
-                )
-                img_bytes = fig_export.to_image(format="png", width=img_w, height=img_h)
-                img_stream = io.BytesIO(img_bytes)
-                # Use explicit height, or fill remaining page space (leave 12mm for footer)
-                available_h = PAGE_H - self.get_y() - 12
-                h = min(chart_h or available_h, available_h)
-                # Scale width to maintain aspect ratio
-                w = h * img_w / img_h
-                # Centre the chart if it's narrower than content width
-                x_offset = MARGIN + max(0, (CONTENT_W - w) / 2)
-                self.image(img_stream, x=x_offset, y=self.get_y(), h=h)
-                self.set_y(self.get_y() + h + 2)
-            except Exception:
-                self.set_font('Helvetica', 'I', 9)
-                self.cell(CONTENT_W, 8, '[Chart unavailable - kaleido required]', new_x="LMARGIN", new_y="NEXT")
+        if fig is not None:
+            png_bytes = _fig_to_png(fig)
+            if png_bytes:
+                slide.shapes.add_picture(io.BytesIO(png_bytes), left, top, width=width, height=height)
+            else:
+                # Failed to render — leave a small note in place
+                txt_box = slide.shapes.add_textbox(left, top, width, height)
+                txt_box.text_frame.text = '[Chart unavailable]'
+        # If fig is None, just remove the placeholder silently
 
-        def content_page(self, title, fig_key, commentary_key, kpis=None,
-                         chart_h=None, img_w=1400, img_h=700):
-            """Standard page: title → KPIs → commentary → chart fills remaining space."""
-            self.add_page()
-            self.section_title(title)
-            if kpis:
-                self.kpi_row(kpis)
-                self.ln(2)
-            self.add_commentary(commentary_key)
-            self.add_chart(fig_key, chart_h=chart_h, img_w=img_w, img_h=img_h)
+    # --- Step 4: Clean up any remaining unreplaced {{tags}} (set to empty so they don't show) ---
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for paragraph in shape.text_frame.paragraphs:
+                    full_text = ''.join(r.text for r in paragraph.runs)
+                    if re.search(r'\{\{[^}]+\}\}', full_text):
+                        cleaned = re.sub(r'\{\{[^}]+\}\}', '', full_text)
+                        if paragraph.runs:
+                            paragraph.runs[0].text = cleaned
+                            for r in paragraph.runs[1:]:
+                                r.text = ''
 
-    pdf = ReportPDF()
-    pdf.alias_nb_pages()
-
-    # --- PAGE 1: Title page ---
-    pdf.add_page(orientation='L')
-    pdf.set_fill_color(*deep_blue_rgb)
-    pdf.rect(0, 0, PAGE_W, PAGE_H, 'F')
-    pdf.set_fill_color(*primary_rgb)
-    pdf.rect(0, 0, 12, PAGE_H, 'F')
-
-    pdf.set_text_color(*white_rgb)
-    pdf.set_font('Helvetica', 'B', 48)
-    pdf.set_xy(30, 40)
-    pdf.cell(0, 20, 'ADVERTISING')
-    pdf.set_xy(30, 65)
-    pdf.set_text_color(*accent_rgb)
-    pdf.cell(0, 20, 'REPORT')
-
-    pdf.set_text_color(*white_rgb)
-    pdf.set_font('Helvetica', 'B', 22)
-    pdf.set_xy(30, 105)
-    pdf.cell(0, 12, metrics['client_name'].upper())
-
-    pdf.set_text_color(180, 180, 200)
-    pdf.set_font('Helvetica', '', 16)
-    pdf.set_xy(30, 125)
-    pdf.cell(0, 10, f"{metrics['report_start']}  to  {metrics['report_end']}")
-    pdf.set_text_color(0, 0, 0)
-
-    # --- PAGE 2: Benchmarking Scatter ---
-    pdf.content_page(
-        'BENCHMARKING JOBS',
-        fig_key='scatter',
-        commentary_key='scatter_commentary',
-        img_w=1400, img_h=800,
-    )
-
-    # --- PAGE 3: Benchmarking Summary ---
-    pdf.content_page(
-        'BENCHMARKING SUMMARY',
-        fig_key='benchmark_combined',
-        commentary_key='benchmark_commentary',
-        kpis=[
-            ('Benchmark Avg. Views', f"{metrics['benchmark_avg_clicks']:,.0f}"),
-            ('Your Avg. Views', f"{metrics['client_avg_clicks']:,.0f}"),
-            ('Benchmark Avg. Applies', f"{metrics['benchmark_avg_applies']:,.1f}"),
-            ('Your Avg. Applies', f"{metrics['client_avg_applies']:,.1f}"),
-        ],
-        img_w=1400, img_h=700,
-    )
-
-    # --- PAGE 4: Job Postings ---
-    pdf.content_page(
-        'JOB POSTINGS BY TYPE',
-        fig_key='postings',
-        commentary_key='postings_commentary',
-        img_w=1400, img_h=900,
-    )
-
-    # --- PAGE 5: ROI ---
-    if metrics['annual_spend'] > 0:
-        num_jobs = metrics['num_jobs']
-        spend = metrics['annual_spend']
-        pdf.content_page(
-            'ADVERTISING ROI',
-            fig_key='roi_cost',
-            commentary_key='roi_commentary',
-            kpis=[
-                ('Jobs Advertised', f"{num_jobs:,}"),
-                ('Cost per Job', f"£{spend / num_jobs:,.2f}" if num_jobs > 0 else 'N/A'),
-                ('Cost per View', f"£{spend / metrics['total_clicks']:,.2f}" if metrics['total_clicks'] > 0 else 'N/A'),
-                ('Cost per Apply', f"£{spend / metrics['total_applies']:,.2f}" if metrics['total_applies'] > 0 else 'N/A'),
-            ],
-            img_w=1200, img_h=600,
-        )
-        # CPA chart on next page
-        if 'roi_cpa' in figures:
-            pdf.add_page()
-            pdf.section_title('COST PER APPLY BY TYPE')
-            pdf.add_chart('roi_cpa', img_w=1400, img_h=900)
-
-    # --- PAGE 6: Media Performance ---
-    if 'media' in figures:
-        pdf.content_page(
-            'MEDIA PERFORMANCE',
-            fig_key='media',
-            commentary_key='media_commentary',
-            img_w=1400, img_h=900,
-        )
-
-    # --- Contact page (conditional) ---
-    has_contact = any([
-        metrics.get('contact_name'),
-        metrics.get('contact_email'),
-        metrics.get('contact_phone'),
-    ])
-    if has_contact:
-        pdf.add_page()
-        pdf.set_fill_color(*primary_rgb)
-        pdf.rect(0, 0, PAGE_W, PAGE_H, 'F')
-
-        pdf.set_text_color(*white_rgb)
-        pdf.set_font('Helvetica', 'B', 40)
-        pdf.set_xy(30, 40)
-        pdf.cell(0, 18, 'GET IN TOUCH')
-
-        pdf.set_fill_color(*accent_rgb)
-        pdf.rect(30, 65, 80, 2.5, 'F')
-
-        y_pos = 80
-        contact_fields = [
-            ('contact_name', 'B', 24),
-            ('contact_title', '', 16),
-            ('contact_email', '', 16),
-            ('contact_phone', '', 16),
-        ]
-        for field, style, size in contact_fields:
-            val = metrics.get(field, '')
-            if val:
-                pdf.set_font('Helvetica', style, size)
-                pdf.set_text_color(*white_rgb)
-                pdf.set_xy(30, y_pos)
-                pdf.cell(0, 12, val)
-                y_pos += 16
-
-    return bytes(pdf.output())
+    # --- Step 5: Output to bytes ---
+    output = io.BytesIO()
+    prs.save(output)
+    return output.getvalue()
 
 
 # ============================================================================

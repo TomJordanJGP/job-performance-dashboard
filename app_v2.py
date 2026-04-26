@@ -2864,6 +2864,7 @@ def create_client_report_tab(df, media_df=None):
             legend=dict(orientation='h', y=-0.1),
             xaxis_title="Count", yaxis_title="",
             plot_bgcolor='rgba(0,0,0,0)',
+            bargap=0.1, bargroupgap=0.0,
         )
         st.plotly_chart(fig_postings, use_container_width=True)
         report_figures['postings'] = fig_postings
@@ -3122,6 +3123,7 @@ def create_client_report_tab(df, media_df=None):
             title=f"Your Spend vs Rate Card Value (Saving: {saving_pct_val:.0f}%)",
             yaxis_title="GBP",
             height=400,
+            bargap=0.05,
             showlegend=True,
             plot_bgcolor='rgba(0,0,0,0)',
             legend=dict(orientation='h', y=-0.15),

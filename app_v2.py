@@ -3298,8 +3298,13 @@ def generate_client_report_pptx(metrics, figures, template_path):
     prs = Presentation(template_path)
 
     # --- Helper: render a Plotly figure to PNG bytes ---
-    def _fig_to_png(fig, width=1600, height=900):
-        """Render a Plotly figure to white-background PNG bytes."""
+    def _fig_to_png(fig, width=1920, height=1080):
+        """Render a Plotly figure to white-background PNG bytes.
+
+        scale=3 with 1920x1080 base produces a ~5760x3240 PNG. PowerPoint
+        downsamples this to the placeholder size, keeping charts sharp when
+        zoomed in or exported to PDF.
+        """
         if fig is None:
             return None
         try:
@@ -3311,7 +3316,7 @@ def generate_client_report_pptx(metrics, figures, template_path):
                 font=dict(size=18),
                 margin=dict(l=120, r=40, t=60, b=80),
             )
-            return fig_export.to_image(format='png', width=width, height=height, scale=1)
+            return fig_export.to_image(format='png', width=width, height=height, scale=3)
         except Exception:
             return None
 

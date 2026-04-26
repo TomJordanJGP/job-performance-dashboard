@@ -3354,10 +3354,19 @@ def generate_client_report_pptx(metrics, figures, template_path):
             )
             fig_export.update_xaxes(automargin=True, title_font=dict(size=22))
             fig_export.update_yaxes(automargin=True, title_font=dict(size=22))
-            # Bump bar value labels for slide-deck legibility. Merges into
-            # any existing textfont (preserves color); only touches bar traces.
-            fig_export.update_traces(selector=dict(type='bar'),
-                                     textfont=dict(size=22))
+            # Force-set bar value-label size and disable auto-shrink. Plotly
+            # defaults constraintext='both' which silently shrinks text to fit
+            # inside the bar — that's why update_traces alone wasn't visibly
+            # bumping the dense postings chart and the narrow spend column.
+            for trace in fig_export.data:
+                if trace.type != 'bar':
+                    continue
+                preserved_color = None
+                if trace.textfont is not None and trace.textfont.color is not None:
+                    preserved_color = trace.textfont.color
+                trace.textfont = ({'size': 22, 'color': preserved_color}
+                                  if preserved_color else {'size': 22})
+                trace.constraintext = 'none'
 
             # scale=6 → 10800 px on the long side. Maximum crispness; render
             # time is a few seconds per chart, accepted for renewals reports.

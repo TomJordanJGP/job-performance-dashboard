@@ -2798,7 +2798,7 @@ def create_client_report_tab(df, media_df=None):
             textposition='outside',
             textfont=dict(size=14, color=JGP_COLORS['deep_blue']),
         ))
-        fig_bench.add_hline(y=100, line_dash="dash", line_color=JGP_COLORS['deep_blue'],
+        fig_bench.add_hline(y=100, line_dash="dash", line_color=JGP_COLORS['primary'],
                             annotation_text="Benchmark (100%)", annotation_position="top right")
         fig_bench.update_layout(
             title="Your Performance vs Market Benchmark",
@@ -3297,18 +3297,35 @@ def generate_client_report_pptx(metrics, figures, template_path):
 
     prs = Presentation(template_path)
 
-    # --- Helper: render a Plotly figure to PNG bytes ---
-    def _fig_to_png(fig, width=1920, height=1080):
+    # --- Helper: render a Plotly figure to PNG bytes at a target aspect ratio ---
+    def _fig_to_png(fig, slot_width_emu=None, slot_height_emu=None):
         """Render a Plotly figure to white-background PNG bytes.
 
-        scale=3 with 1920x1080 base produces a ~5760x3240 PNG. PowerPoint
-        downsamples this to the placeholder size, keeping charts sharp when
-        zoomed in or exported to PDF.
+        If slot dimensions are passed (the placeholder's .width/.height in
+        EMU), the PNG is rendered at that exact aspect ratio so PowerPoint
+        doesn't squash the bitmap when fitting it. Otherwise default to 16:9.
+
+        Pixel target is 1500 on the longest side, then kaleido renders at
+        scale=4 — effectively very high DPI, sharp at any zoom and when
+        exported to PDF. Y/X axes use automargin so tick labels never clip.
         """
         if fig is None:
             return None
         try:
             import plotly.graph_objects as go_local
+
+            TARGET_LONG_PX = 1500
+            if slot_width_emu and slot_height_emu:
+                ratio = slot_width_emu / slot_height_emu
+            else:
+                ratio = 16 / 9
+            if ratio >= 1:
+                width = TARGET_LONG_PX
+                height = int(round(TARGET_LONG_PX / ratio))
+            else:
+                height = TARGET_LONG_PX
+                width = int(round(TARGET_LONG_PX * ratio))
+
             fig_export = go_local.Figure(fig.to_dict())
             fig_export.update_layout(
                 paper_bgcolor='white',
@@ -3316,7 +3333,10 @@ def generate_client_report_pptx(metrics, figures, template_path):
                 font=dict(size=18),
                 margin=dict(l=120, r=40, t=60, b=80),
             )
-            return fig_export.to_image(format='png', width=width, height=height, scale=3)
+            fig_export.update_xaxes(automargin=True, title_font=dict(size=22))
+            fig_export.update_yaxes(automargin=True, title_font=dict(size=22))
+
+            return fig_export.to_image(format='png', width=width, height=height, scale=4)
         except Exception:
             return None
 
@@ -3379,7 +3399,7 @@ def generate_client_report_pptx(metrics, figures, template_path):
         sp.getparent().remove(sp)
 
         if fig is not None:
-            png_bytes = _fig_to_png(fig)
+            png_bytes = _fig_to_png(fig, slot_width_emu=width, slot_height_emu=height)
             if png_bytes:
                 slide.shapes.add_picture(io.BytesIO(png_bytes), left, top, width=width, height=height)
             else:

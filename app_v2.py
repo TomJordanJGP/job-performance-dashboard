@@ -3108,6 +3108,7 @@ def create_client_report_tab(df, media_df=None):
             text=[f"£{annual_spend:,.0f}"],
             textposition='inside',
             textfont=dict(color='white', size=14),
+            width=0.7,
         ))
         fig_spend_stack.add_trace(go.Bar(
             x=['Total Value'],
@@ -3117,6 +3118,7 @@ def create_client_report_tab(df, media_df=None):
             text=[f"£{saving_amount:,.0f}"],
             textposition='inside',
             textfont=dict(color=JGP_COLORS['deep_blue'], size=14),
+            width=0.7,
         ))
         fig_spend_stack.update_layout(
             barmode='stack',
@@ -3352,6 +3354,10 @@ def generate_client_report_pptx(metrics, figures, template_path):
             )
             fig_export.update_xaxes(automargin=True, title_font=dict(size=22))
             fig_export.update_yaxes(automargin=True, title_font=dict(size=22))
+            # Bump bar value labels for slide-deck legibility. Merges into
+            # any existing textfont (preserves color); only touches bar traces.
+            fig_export.update_traces(selector=dict(type='bar'),
+                                     textfont=dict(size=22))
 
             # scale=6 → 10800 px on the long side. Maximum crispness; render
             # time is a few seconds per chart, accepted for renewals reports.

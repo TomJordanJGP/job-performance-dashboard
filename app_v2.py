@@ -2798,8 +2798,15 @@ def create_client_report_tab(df, media_df=None):
             textposition='outside',
             textfont=dict(size=14, color=JGP_COLORS['deep_blue']),
         ))
-        fig_bench.add_hline(y=100, line_dash="dash", line_width=3, line_color=JGP_COLORS['accent'],
-                            annotation_text="Benchmark (100%)", annotation_position="top right")
+        fig_bench.add_hline(
+            y=100, line_dash="dash", line_width=3, line_color=JGP_COLORS['accent'],
+            annotation_text="Benchmark (100%)",
+            annotation_position="top right",
+            annotation_bgcolor="white",
+            annotation_bordercolor=JGP_COLORS['deep_blue'],
+            annotation_borderwidth=1,
+            annotation_font=dict(color=JGP_COLORS['deep_blue'], size=14),
+        )
         fig_bench.update_layout(
             title="Your Performance vs Market Benchmark",
             yaxis_title="% of Benchmark",
@@ -3314,17 +3321,20 @@ def generate_client_report_pptx(metrics, figures, template_path):
         try:
             import plotly.graph_objects as go_local
 
-            TARGET_LONG_PX = 1800
+            # Size the PNG by slot inches × DPI so every chart gets the same
+            # effective resolution regardless of slot width — a wider slot
+            # otherwise gets fewer DPI under a long-side cap and looks softer.
+            # DPI=200 base × scale=4 below = 800 effective DPI everywhere.
+            DPI = 200
+            EMU_PER_INCH = 914400
+            FALLBACK_W_IN, FALLBACK_H_IN = 16, 9
             if slot_width_emu and slot_height_emu:
-                ratio = slot_width_emu / slot_height_emu
+                slot_w_in = slot_width_emu / EMU_PER_INCH
+                slot_h_in = slot_height_emu / EMU_PER_INCH
             else:
-                ratio = 16 / 9
-            if ratio >= 1:
-                width = TARGET_LONG_PX
-                height = int(round(TARGET_LONG_PX / ratio))
-            else:
-                height = TARGET_LONG_PX
-                width = int(round(TARGET_LONG_PX * ratio))
+                slot_w_in, slot_h_in = FALLBACK_W_IN, FALLBACK_H_IN
+            width = max(400, int(round(slot_w_in * DPI)))
+            height = max(400, int(round(slot_h_in * DPI)))
 
             fig_export = go_local.Figure(fig.to_dict())
             fig_export.update_layout(

@@ -2798,7 +2798,7 @@ def create_client_report_tab(df, media_df=None):
             textposition='outside',
             textfont=dict(size=14, color=JGP_COLORS['deep_blue']),
         ))
-        fig_bench.add_hline(y=100, line_dash="dash", line_color=JGP_COLORS['primary'],
+        fig_bench.add_hline(y=100, line_dash="dash", line_width=3, line_color=JGP_COLORS['accent'],
                             annotation_text="Benchmark (100%)", annotation_position="top right")
         fig_bench.update_layout(
             title="Your Performance vs Market Benchmark",
@@ -3314,7 +3314,7 @@ def generate_client_report_pptx(metrics, figures, template_path):
         try:
             import plotly.graph_objects as go_local
 
-            TARGET_LONG_PX = 1500
+            TARGET_LONG_PX = 1800
             if slot_width_emu and slot_height_emu:
                 ratio = slot_width_emu / slot_height_emu
             else:
@@ -3331,7 +3331,10 @@ def generate_client_report_pptx(metrics, figures, template_path):
                 paper_bgcolor='white',
                 plot_bgcolor='white',
                 font=dict(size=18),
-                margin=dict(l=120, r=40, t=60, b=80),
+                # pad=15 puts visible space between tick labels and the plot.
+                margin=dict(l=120, r=40, t=60, b=80, pad=15),
+                # Override the JGP template's small (12pt) legend font for export.
+                legend=dict(font=dict(size=18)),
             )
             fig_export.update_xaxes(automargin=True, title_font=dict(size=22))
             fig_export.update_yaxes(automargin=True, title_font=dict(size=22))

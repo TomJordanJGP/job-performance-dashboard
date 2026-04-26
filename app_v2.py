@@ -3321,20 +3321,22 @@ def generate_client_report_pptx(metrics, figures, template_path):
         try:
             import plotly.graph_objects as go_local
 
-            # Size the PNG by slot inches × DPI so every chart gets the same
-            # effective resolution regardless of slot width — a wider slot
-            # otherwise gets fewer DPI under a long-side cap and looks softer.
-            # DPI=200 base × scale=4 below = 800 effective DPI everywhere.
-            DPI = 200
-            EMU_PER_INCH = 914400
-            FALLBACK_W_IN, FALLBACK_H_IN = 16, 9
+            # Match the placeholder aspect ratio but keep canvas dimensions
+            # constant across charts. Plotly font sizes are pixels relative to
+            # canvas, so a uniform canvas keeps text/legend/axes the same
+            # relative size on every slide. Crispness comes from `scale` (a
+            # pure DPI multiplier), not from a bigger canvas.
+            TARGET_LONG_PX = 1800
             if slot_width_emu and slot_height_emu:
-                slot_w_in = slot_width_emu / EMU_PER_INCH
-                slot_h_in = slot_height_emu / EMU_PER_INCH
+                ratio = slot_width_emu / slot_height_emu
             else:
-                slot_w_in, slot_h_in = FALLBACK_W_IN, FALLBACK_H_IN
-            width = max(400, int(round(slot_w_in * DPI)))
-            height = max(400, int(round(slot_h_in * DPI)))
+                ratio = 16 / 9
+            if ratio >= 1:
+                width = TARGET_LONG_PX
+                height = int(round(TARGET_LONG_PX / ratio))
+            else:
+                height = TARGET_LONG_PX
+                width = int(round(TARGET_LONG_PX * ratio))
 
             fig_export = go_local.Figure(fig.to_dict())
             fig_export.update_layout(
@@ -3349,7 +3351,9 @@ def generate_client_report_pptx(metrics, figures, template_path):
             fig_export.update_xaxes(automargin=True, title_font=dict(size=22))
             fig_export.update_yaxes(automargin=True, title_font=dict(size=22))
 
-            return fig_export.to_image(format='png', width=width, height=height, scale=4)
+            # scale=6 → 10800 px on the long side. Maximum crispness; render
+            # time is a few seconds per chart, accepted for renewals reports.
+            return fig_export.to_image(format='png', width=width, height=height, scale=6)
         except Exception:
             return None
 

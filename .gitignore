@@ -24,6 +24,15 @@ ENV/
 .DS_Store
 Thumbs.db
 
+# Office lock files (auto-created while a doc is open)
+~$*.pptx
+~$*.docx
+~$*.xlsx
+
+# Generated client report exports — outputs of the Client Report tab,
+# not source. The Renewals.pptx template stays tracked.
+advertising_report_*.pptx
+
 # Streamlit
 .streamlit/secrets.toml
 

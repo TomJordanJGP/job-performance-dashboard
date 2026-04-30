@@ -1173,6 +1173,39 @@ def render_client_report(df, media_df=None):
         'commentary_media_point_2': media_struct['point_2'],
         'commentary_media_point_3': media_struct['point_3'],
 
+        # Static chart explainers — describe how each chart is calculated.
+        # Wording lives here (not the template) so methodology tweaks are a
+        # one-line code change, not a PowerPoint edit.
+        'chart_explainer_benchmark_scatter': (
+            "Each marker is one of your vacancies. Its position shows how views "
+            "and applies compare to the average for the same occupation across "
+            "all other clients — top-right is above benchmark on both."
+        ),
+        'chart_explainer_benchmark_average': (
+            "Your average views and applies per vacancy as a percentage of the "
+            "wider market average. 100% sits in line with the benchmark; above "
+            "100% outperforms it."
+        ),
+        'chart_explainer_postings_by_type': (
+            "How your vacancy volume and apply clicks distribute across "
+            "occupation categories during the report period."
+        ),
+        'chart_explainer_spend_vs_ratecard': (
+            "Your subscription spend (purple) stacked with the saving versus "
+            "paying rate-card per vacancy (green). The full bar is what these "
+            "postings would cost without your subscription."
+        ),
+        'chart_explainer_cost_per_app_by_occupation': (
+            "Your annual spend allocated to each occupation by share of "
+            "vacancies, then divided by the applies generated. Lower bars "
+            "indicate where spend produces candidates most efficiently."
+        ),
+        'chart_explainer_media_performance': (
+            "Average views and applies per vacancy, broken down by traffic "
+            "source. Shows which channels (organic search, paid, direct, "
+            "referral, etc.) drive the most candidates."
+        ),
+
         # Slide 7 contact
         'contact_name': contact_name or 'Your Account Manager',
         'contact_title': contact_title or 'Account Director',

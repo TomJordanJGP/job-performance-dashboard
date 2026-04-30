@@ -20,6 +20,43 @@ from theme.colors import JGP_COLORS, JGP_PLOTLY_TEMPLATE
 from data.processing import apply_media_categories
 
 
+# Static explainers describing how each chart is calculated. Single source of
+# truth: rendered on-screen as captions and substituted into the PPTX template
+# via {{chart_explainer_<key>}} placeholders. Wording change → one-line edit
+# here, no PowerPoint round trip.
+CHART_EXPLAINERS = {
+    'benchmark_scatter': (
+        "Each marker is one of your vacancies. Its position shows how views "
+        "and applies compare to the average for the same occupation across "
+        "all other clients — top-right is above benchmark on both."
+    ),
+    'benchmark_average': (
+        "Your average views and applies per vacancy as a percentage of the "
+        "wider market average. 100% sits in line with the benchmark; above "
+        "100% outperforms it."
+    ),
+    'postings_by_type': (
+        "How your vacancy volume and apply clicks distribute across "
+        "occupation categories during the report period."
+    ),
+    'spend_vs_ratecard': (
+        "Your subscription spend (purple) stacked with the saving versus "
+        "paying rate-card per vacancy (green). The full bar is what these "
+        "postings would cost without your subscription."
+    ),
+    'cost_per_app_by_occupation': (
+        "Your annual spend allocated to each occupation by share of "
+        "vacancies, then divided by the applies generated. Lower bars "
+        "indicate where spend produces candidates most efficiently."
+    ),
+    'media_performance': (
+        "Average views and applies per vacancy, broken down by traffic "
+        "source. Shows which channels (organic search, paid, direct, "
+        "referral, etc.) drive the most candidates."
+    ),
+}
+
+
 def generate_section_commentary(section, data):
     """Generate template-based commentary for each report section.
 
@@ -629,6 +666,7 @@ def render_client_report(df, media_df=None):
                 yaxis=dict(gridcolor=JGP_COLORS['light_purple'], gridwidth=1, zeroline=False),
             )
             st.plotly_chart(fig_scatter, use_container_width=True)
+            st.caption(CHART_EXPLAINERS['benchmark_scatter'])
             report_figures['scatter'] = fig_scatter
 
     with commentary_col:
@@ -729,6 +767,7 @@ def render_client_report(df, media_df=None):
             plot_bgcolor='rgba(0,0,0,0)',
         )
         st.plotly_chart(fig_bench, use_container_width=True)
+        st.caption(CHART_EXPLAINERS['benchmark_average'])
         report_figures['benchmark_combined'] = fig_bench
 
     with bench_commentary_col:
@@ -782,6 +821,7 @@ def render_client_report(df, media_df=None):
             bargap=0.1, bargroupgap=0.0,
         )
         st.plotly_chart(fig_postings, use_container_width=True)
+        st.caption(CHART_EXPLAINERS['postings_by_type'])
         report_figures['postings'] = fig_postings
 
     with commentary_col3:
@@ -848,6 +888,7 @@ def render_client_report(df, media_df=None):
                 plot_bgcolor='rgba(0,0,0,0)',
             )
             st.plotly_chart(fig_roi, use_container_width=True)
+            st.caption(CHART_EXPLAINERS['spend_vs_ratecard'])
             report_figures['roi_cost'] = fig_roi
 
             # Cost per apply by type chart
@@ -876,6 +917,7 @@ def render_client_report(df, media_df=None):
                     plot_bgcolor='rgba(0,0,0,0)',
                 )
                 st.plotly_chart(fig_cpa, use_container_width=True)
+                st.caption(CHART_EXPLAINERS['cost_per_app_by_occupation'])
                 report_figures['roi_cpa'] = fig_cpa
 
         with roi_commentary_col:
@@ -940,6 +982,7 @@ def render_client_report(df, media_df=None):
                 plot_bgcolor='rgba(0,0,0,0)',
             )
             st.plotly_chart(fig_media, use_container_width=True)
+            st.caption(CHART_EXPLAINERS['media_performance'])
             report_figures['media'] = fig_media
 
             # Summary table below chart
@@ -1173,38 +1216,9 @@ def render_client_report(df, media_df=None):
         'commentary_media_point_2': media_struct['point_2'],
         'commentary_media_point_3': media_struct['point_3'],
 
-        # Static chart explainers — describe how each chart is calculated.
-        # Wording lives here (not the template) so methodology tweaks are a
-        # one-line code change, not a PowerPoint edit.
-        'chart_explainer_benchmark_scatter': (
-            "Each marker is one of your vacancies. Its position shows how views "
-            "and applies compare to the average for the same occupation across "
-            "all other clients — top-right is above benchmark on both."
-        ),
-        'chart_explainer_benchmark_average': (
-            "Your average views and applies per vacancy as a percentage of the "
-            "wider market average. 100% sits in line with the benchmark; above "
-            "100% outperforms it."
-        ),
-        'chart_explainer_postings_by_type': (
-            "How your vacancy volume and apply clicks distribute across "
-            "occupation categories during the report period."
-        ),
-        'chart_explainer_spend_vs_ratecard': (
-            "Your subscription spend (purple) stacked with the saving versus "
-            "paying rate-card per vacancy (green). The full bar is what these "
-            "postings would cost without your subscription."
-        ),
-        'chart_explainer_cost_per_app_by_occupation': (
-            "Your annual spend allocated to each occupation by share of "
-            "vacancies, then divided by the applies generated. Lower bars "
-            "indicate where spend produces candidates most efficiently."
-        ),
-        'chart_explainer_media_performance': (
-            "Average views and applies per vacancy, broken down by traffic "
-            "source. Shows which channels (organic search, paid, direct, "
-            "referral, etc.) drive the most candidates."
-        ),
+        # Static chart explainers — sourced from module-level CHART_EXPLAINERS
+        # so on-screen captions and PPTX placeholders share one source of truth.
+        **{f'chart_explainer_{k}': v for k, v in CHART_EXPLAINERS.items()},
 
         # Slide 7 contact
         'contact_name': contact_name or 'Your Account Manager',

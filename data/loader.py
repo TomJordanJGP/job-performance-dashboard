@@ -13,6 +13,7 @@ BQ_DATASET_ID = "job_data_export"
 BQ_TABLE_ID = "dashboard_vacancy_summary"
 BQ_DAILY_TOTALS_TABLE_ID = "dashboard_daily_totals"
 BQ_REGION_SUMMARY_TABLE_ID = "dashboard_vacancy_region_summary"
+BQ_MEDIA_SUMMARY_TABLE_ID = "dashboard_media_summary"
 
 SCOPES = [
     'https://www.googleapis.com/auth/bigquery',
@@ -68,11 +69,12 @@ def get_bigquery_client():
 
 @st.cache_data(ttl=14400)
 def load_all_data(days_back=None, sample_size=None):
-    """Load vacancy summary, daily totals, and region-exploded summary from BigQuery.
+    """Load vacancy, daily totals, region-exploded, and media summaries from BigQuery.
 
     Returns:
-        (vacancy_df, daily_df, region_df) — region_df is None if the table
-        doesn't exist yet; views fall back to pipe-split logic in that case.
+        (vacancy_df, daily_df, region_df, media_df) — region_df and media_df are
+        None if their respective tables don't exist yet; consumers handle None
+        (region: pipe-split fallback in views; media: section hidden in client report).
     """
     try:
         client = get_bigquery_client()
@@ -225,7 +227,29 @@ def load_all_data(days_back=None, sample_size=None):
         except Exception:
             pass  # Table may not exist yet — views fall back to pipe-split logic
 
-        return vacancy_df, daily_df, region_df
+        # Media-source breakdown per vacancy (one row per source/medium/campaign)
+        # Falls back to None if the table doesn't exist yet
+        media_df = None
+        try:
+            media_query = f"""
+            SELECT
+                entity_id_str,
+                importer_ID,
+                importer_name,
+                source,
+                medium,
+                campaign,
+                clicks,
+                applies
+            FROM `{BQ_PROJECT_ID}.{BQ_DATASET_ID}.{BQ_MEDIA_SUMMARY_TABLE_ID}`
+            """
+            media_job = client.query(media_query)
+            media_job.result()
+            media_df = media_job.to_dataframe(create_bqstorage_client=False)
+        except Exception:
+            pass  # Table may not exist yet — client report Media section hides
+
+        return vacancy_df, daily_df, region_df, media_df
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
         st.markdown("""

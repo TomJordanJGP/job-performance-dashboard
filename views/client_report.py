@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 
 from pptx import Presentation
 
-from theme.colors import JGP_COLORS
+from theme.colors import JGP_COLORS, JGP_PLOTLY_TEMPLATE
 from data.processing import apply_media_categories
 
 
@@ -617,6 +617,7 @@ def render_client_report(df, media_df=None):
                 ))
             fig_scatter.add_hline(y=0, line_dash="dash", line_color="grey", opacity=0.5)
             fig_scatter.add_vline(x=0, line_dash="dash", line_color="grey", opacity=0.5)
+            fig_scatter.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
             fig_scatter.update_layout(
                 height=500,
                 showlegend=True,
@@ -719,6 +720,7 @@ def render_client_report(df, media_df=None):
             annotation_borderwidth=1,
             annotation_font=dict(color=JGP_COLORS['deep_blue'], size=14),
         )
+        fig_bench.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
         fig_bench.update_layout(
             title="Your Performance vs Market Benchmark",
             yaxis_title="% of Benchmark",
@@ -771,6 +773,7 @@ def render_client_report(df, media_df=None):
             text=by_type['apply_clicks'].astype(int), textposition='outside',
             textfont=dict(color=JGP_COLORS['deep_blue']),
         ))
+        fig_postings.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
         fig_postings.update_layout(
             barmode='group', height=max(400, len(by_type) * 40),
             legend=dict(orientation='h', y=-0.1),
@@ -838,6 +841,7 @@ def render_client_report(df, media_df=None):
                 text=[f"£{rate_card_total:,.0f}"], textposition='outside',
                 textfont=dict(color=JGP_COLORS['deep_blue']),
             ))
+            fig_roi.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
             fig_roi.update_layout(
                 title=f"Cost vs Rate Card (Saving: {saving_pct:.0f}%)",
                 height=350, showlegend=True, yaxis_title="GBP",
@@ -864,6 +868,7 @@ def render_client_report(df, media_df=None):
                     text=roi_by_type['cost_per_apply'].apply(lambda x: f"£{x:,.2f}"),
                     textposition='outside'
                 ))
+                fig_cpa.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
                 fig_cpa.update_layout(
                     title="Cost per Apply by Job Type",
                     height=max(300, len(roi_by_type) * 35),
@@ -926,6 +931,7 @@ def render_client_report(df, media_df=None):
                 name='Avg. Applies', orientation='h', marker_color=JGP_COLORS['accent'],
                 textfont=dict(color=JGP_COLORS['deep_blue']),
             ))
+            fig_media.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
             fig_media.update_layout(
                 barmode='group', height=max(350, len(cat_stats) * 40),
                 title="Media Performance by Channel",
@@ -1033,6 +1039,7 @@ def render_client_report(df, media_df=None):
             textfont=dict(color=JGP_COLORS['deep_blue'], size=14),
             width=0.7,
         ))
+        fig_spend_stack.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
         fig_spend_stack.update_layout(
             barmode='stack',
             title=f"Your Spend vs Rate Card Value (Saving: {saving_pct_val:.0f}%)",
@@ -1069,6 +1076,7 @@ def render_client_report(df, media_df=None):
                 textposition='outside',
                 textfont=dict(color=JGP_COLORS['deep_blue']),
             ))
+            cpa_by_occ_fig.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
             cpa_by_occ_fig.update_layout(
                 title="Cost per Apply by Occupation",
                 height=max(350, len(roi_by_type_full) * 32),

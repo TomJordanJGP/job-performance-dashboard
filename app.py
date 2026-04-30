@@ -31,6 +31,7 @@ from views.dashboard import render_dashboard
 from views.performance import render_performance
 from views.compare import render_compare
 from views.salary import render_salary
+from views.client_report import render_client_report
 
 
 @st.cache_data(ttl=14400)
@@ -99,11 +100,12 @@ def main():
     st.markdown(main_logo(), unsafe_allow_html=True)
 
     # Tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "Dashboard",
         "Performance",
         "Compare",
         "Salary Benchmarking",
+        "Client Report",
     ])
 
     with tab1:
@@ -117,6 +119,9 @@ def main():
 
     with tab4:
         render_salary(df, region_df=region_df)
+
+    with tab5:
+        render_client_report(df, media_df=media_df)
 
 
 if __name__ == "__main__":

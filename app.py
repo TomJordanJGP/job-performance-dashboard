@@ -55,7 +55,12 @@ def main():
 
     # === DATA LOADING (all data, no date cutoff) ===
     with st.spinner("Loading data..."):
-        df_raw, daily_totals, region_raw, media_df = load_all_data(sample_size=None)
+        # Defensive unpack: tolerates loader returning 3 or 4 values so a
+        # stale @st.cache_data hit on Streamlit Cloud during the rollout
+        # doesn't crash the app. Drop once we've confirmed clean redeploy.
+        loaded = load_all_data(sample_size=None)
+        df_raw, daily_totals, region_raw = loaded[:3]
+        media_df = loaded[3] if len(loaded) >= 4 else None
         df = _process_raw_data(df_raw)
         region_df = _process_raw_data(region_raw) if region_raw is not None else None
 

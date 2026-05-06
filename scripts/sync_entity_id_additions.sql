@@ -54,7 +54,15 @@ USING (
     TRIM(CAST(external_id AS STRING)) AS external_id,
     TRIM(CAST(entity_id AS STRING)) AS entity_id,
     TRIM(CAST(employer_type AS STRING)) AS employer_type,
-    SAFE_CAST(TRIM(CAST(original_publishing_date AS STRING)) AS TIMESTAMP) AS original_publishing_date
+    -- Sheet cells in UK locale display as DD/MM/YYYY HH:MM. SAFE_CAST AS TIMESTAMP
+    -- only understands ISO, so try DD/MM patterns first (in Europe/London to handle
+    -- BST), then fall back to ISO for cells the export script wrote raw.
+    COALESCE(
+      SAFE.PARSE_TIMESTAMP('%d/%m/%Y %H:%M',    TRIM(CAST(original_publishing_date AS STRING)), 'Europe/London'),
+      SAFE.PARSE_TIMESTAMP('%d/%m/%Y %H:%M:%S', TRIM(CAST(original_publishing_date AS STRING)), 'Europe/London'),
+      SAFE.PARSE_TIMESTAMP('%d/%m/%Y',          TRIM(CAST(original_publishing_date AS STRING)), 'Europe/London'),
+      SAFE_CAST(TRIM(CAST(original_publishing_date AS STRING)) AS TIMESTAMP)
+    ) AS original_publishing_date
   FROM `site-monitoring-421401.job_data_export.missing_entity_ids_review_external`
   WHERE UPPER(TRIM(CAST(done AS STRING))) = 'TRUE'
     AND TRIM(CAST(entity_id AS STRING)) IS NOT NULL

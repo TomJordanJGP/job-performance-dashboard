@@ -71,8 +71,21 @@ USING (
     TRIM(CAST(occupational_fields AS STRING)) AS occupational_fields,
     TRIM(CAST(employer_type AS STRING)) AS employer_type,
     TRIM(CAST(workflow_state AS STRING)) AS workflow_state,
-    SAFE_CAST(TRIM(CAST(publishing_date AS STRING)) AS TIMESTAMP) AS publishing_date,
-    SAFE_CAST(TRIM(CAST(expiration_date AS STRING)) AS TIMESTAMP) AS expiration_date,
+    -- Sheet cells in UK locale display as DD/MM/YYYY HH:MM. SAFE_CAST AS TIMESTAMP
+    -- only understands ISO, so try DD/MM patterns first (in Europe/London to handle
+    -- BST), then fall back to ISO for cells the export script wrote raw.
+    COALESCE(
+      SAFE.PARSE_TIMESTAMP('%d/%m/%Y %H:%M',    TRIM(CAST(publishing_date AS STRING)), 'Europe/London'),
+      SAFE.PARSE_TIMESTAMP('%d/%m/%Y %H:%M:%S', TRIM(CAST(publishing_date AS STRING)), 'Europe/London'),
+      SAFE.PARSE_TIMESTAMP('%d/%m/%Y',          TRIM(CAST(publishing_date AS STRING)), 'Europe/London'),
+      SAFE_CAST(TRIM(CAST(publishing_date AS STRING)) AS TIMESTAMP)
+    ) AS publishing_date,
+    COALESCE(
+      SAFE.PARSE_TIMESTAMP('%d/%m/%Y %H:%M',    TRIM(CAST(expiration_date AS STRING)), 'Europe/London'),
+      SAFE.PARSE_TIMESTAMP('%d/%m/%Y %H:%M:%S', TRIM(CAST(expiration_date AS STRING)), 'Europe/London'),
+      SAFE.PARSE_TIMESTAMP('%d/%m/%Y',          TRIM(CAST(expiration_date AS STRING)), 'Europe/London'),
+      SAFE_CAST(TRIM(CAST(expiration_date AS STRING)) AS TIMESTAMP)
+    ) AS expiration_date,
     SAFE_CAST(TRIM(CAST(min_salary AS STRING)) AS FLOAT64) AS min_salary,
     SAFE_CAST(TRIM(CAST(max_salary AS STRING)) AS FLOAT64) AS max_salary,
     TRIM(CAST(currency_code AS STRING)) AS currency_code,

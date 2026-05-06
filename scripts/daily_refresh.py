@@ -174,6 +174,29 @@ def main():
     if not ok:
         print("  WARNING: Entity ID additions sync failed. Continuing with existing metadata...")
 
+    # Post-sync data-quality probe: NULL counts on date columns for sheet-synced
+    # rows. Sustained increases here flag silent date-parse regressions
+    # (e.g. a new Sheet date format the SQL parser can't handle).
+    if not args.dry_run:
+        try:
+            null_counts = client.query("""
+                SELECT
+                  COUNTIF(original_publishing_date IS NULL) AS orig_null,
+                  COUNTIF(publishing_date IS NULL) AS pub_null,
+                  COUNTIF(expiration_date IS NULL) AS exp_null,
+                  COUNT(*) AS total_rows
+                FROM `site-monitoring-421401.job_data_export.job_metadata`
+                WHERE entity_id IS NOT NULL AND entity_id != ''
+            """).result().to_dataframe().iloc[0]
+            print(
+                f"  post-sync NULLs (entity_id rows={null_counts['total_rows']}) — "
+                f"orig:{null_counts['orig_null']} "
+                f"pub:{null_counts['pub_null']} "
+                f"exp:{null_counts['exp_null']}"
+            )
+        except Exception as e:
+            print(f"  WARNING: post-sync NULL probe failed: {e}")
+
     # Step 2.1: Sync approved location additions from Google Sheet → location_lookup.
     # Must run BEFORE vacancy_locations refresh so new lookup entries are available.
     ok = run_sql_file(client, 'sync_location_additions.sql',

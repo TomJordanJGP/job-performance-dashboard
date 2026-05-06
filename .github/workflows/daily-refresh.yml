@@ -1,9 +1,9 @@
-name: Daily Data Refresh
+name: Data Refresh (every 4 hours)
 
 on:
   schedule:
-    # Run at 06:00 UTC every day
-    - cron: '0 6 * * *'
+    # Run every 4 hours: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
+    - cron: '0 */4 * * *'
   workflow_dispatch:  # Allow manual trigger from GitHub UI
 
 jobs:

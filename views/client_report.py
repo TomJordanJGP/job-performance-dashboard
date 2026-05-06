@@ -13,11 +13,13 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from pptx import Presentation
 
 from theme.colors import JGP_COLORS, JGP_PLOTLY_TEMPLATE
 from data.processing import apply_media_categories
+from data.loader import load_client_hq_regions
 
 
 # Static explainers describing how each chart is calculated. Single source of
@@ -53,6 +55,12 @@ CHART_EXPLAINERS = {
         "Average views and applies per vacancy, broken down by traffic "
         "source. Shows which channels (organic search, paid, direct, "
         "referral, etc.) drive the most candidates."
+    ),
+    'salary_by_occupation': (
+        "Market salary spread for your top 10 most-priced occupations. "
+        "Lines mark your mean (red), the national mean (amber) and your "
+        "HQ-region mean (green). Ranked by count of priced vacancies; "
+        "minimum 5 per occupation."
     ),
 }
 
@@ -437,6 +445,68 @@ def generate_section_commentary_structured(section, data):
             if second_source is not None:
                 point_3 = (f"{second_source['source_category']} is the second strongest channel with "
                            f"{int(second_source['total_applies']):,} applies — providing diversified candidate flow.")
+
+        return {'intro': _clean(intro), 'point_1': _clean(point_1), 'point_2': _clean(point_2), 'point_3': _clean(point_3)}
+
+    elif section == 'salary':
+        per_occ = data.get('per_occ') or []
+        client_name = data.get('client_name', 'This client')
+        client_region = data.get('client_region')
+
+        if not per_occ:
+            return {'intro': 'Insufficient salary data to generate commentary for this client.',
+                    'point_1': '', 'point_2': '', 'point_3': ''}
+
+        # Compare each occupation's client mean to the national mean.
+        # Tuples: (occupation, pct_diff_signed, client_mean, national_mean)
+        deltas = []
+        for p in per_occ:
+            c, n = p.get('client_mean'), p.get('national_mean')
+            if c is None or n is None or pd.isna(c) or pd.isna(n) or n == 0:
+                continue
+            deltas.append((p['occupation'], (c - n) / n * 100, c, n))
+
+        above = sorted([d for d in deltas if d[1] > 0], key=lambda x: x[1], reverse=True)
+        below = sorted([d for d in deltas if d[1] < 0], key=lambda x: x[1])  # most-negative first
+
+        n_total = len(deltas)
+        if n_total == 0:
+            return {'intro': 'Salary data was insufficient to compute market comparisons.',
+                    'point_1': '', 'point_2': '', 'point_3': ''}
+
+        intro = (f"Across {client_name}'s top {n_total} most-posted occupations with salary data, "
+                 f"{len(above)} pay above the national market average and {len(below)} pay below it.")
+
+        point_1 = ''
+        if above:
+            top = above[0]
+            point_1 = (f"{top[0]} is your strongest premium — sitting {top[1]:.0f}% above the national "
+                       f"average (£{top[2]:,.0f} vs £{top[3]:,.0f}). Useful signal for attraction in this discipline.")
+
+        point_2 = ''
+        if below:
+            worst = below[0]
+            point_2 = (f"{worst[0]} sits {abs(worst[1]):.0f}% below the national average "
+                       f"(£{worst[2]:,.0f} vs £{worst[3]:,.0f}) — a likely contributor to slower candidate flow in this category.")
+
+        point_3 = ''
+        if client_region:
+            reg_above = reg_below = 0
+            for p in per_occ:
+                c, r = p.get('client_mean'), p.get('regional_mean')
+                if c is None or r is None or pd.isna(c) or pd.isna(r):
+                    continue
+                if c > r:
+                    reg_above += 1
+                elif c < r:
+                    reg_below += 1
+            if reg_above + reg_below > 0:
+                point_3 = (f"Within {client_region}, {client_name} pays above the regional average for "
+                           f"{reg_above} of these roles and below for {reg_below} — useful context when "
+                           f"benchmarking against employers competing for the same local talent pool.")
+        else:
+            point_3 = ("Regional benchmark unavailable for this client — common for central-government and "
+                       "multi-site bodies whose vacancies span the UK.")
 
         return {'intro': _clean(intro), 'point_1': _clean(point_1), 'point_2': _clean(point_2), 'point_3': _clean(point_3)}
 
@@ -941,6 +1011,208 @@ def render_client_report(df, media_df=None):
     st.markdown("---")
 
     # ===================================================================
+    # SECTION 4.5: SALARY BENCHMARK BY TOP-10 OCCUPATIONS
+    # ===================================================================
+    # For each of the client's most-posted-with-salary roles, show the
+    # market salary distribution as a histogram and overlay three reference
+    # means: client, national, regional (client's HQ region). Mirrors the
+    # salary-tab histogram pattern (views/salary.py:185-239) per occupation.
+    st.subheader("Salary Benchmark — Your Top 10 Occupations")
+
+    # Persistent across the conditional branches so the commentary generator
+    # downstream can pick them up (None when section is skipped).
+    salary_per_occ = None
+    salary_client_region = None
+
+    client_with_salary = client_df[client_df.get('has_salary_data', False) == True]
+
+    if len(client_with_salary) == 0:
+        st.info(
+            "No salary data is available for this client's vacancies in the "
+            "selected period — salary benchmark omitted."
+        )
+    else:
+        occ_counts = client_with_salary['occupation'].dropna().value_counts()
+        qualifying = occ_counts[occ_counts >= 5]
+        top_occupations = qualifying.head(10).index.tolist()
+
+        if len(top_occupations) == 0:
+            st.info(
+                "No occupations have at least 5 vacancies with salary data for "
+                "this client in the selected period — salary benchmark needs "
+                "≥5 priced roles per occupation to be meaningful."
+            )
+        else:
+            # Look up client HQ region (None for multi-site / central-gov clients)
+            hq_map = load_client_hq_regions()
+            client_region = hq_map.get(selected_client.lower().strip())
+
+            # Pre-build the regional market subset once. Compare on
+            # lower-stripped strings so canonical/raw spelling differences
+            # between primary_uk_region and client_hq_addresses don't drop
+            # the line silently.
+            df_regional_market = None
+            if client_region and 'primary_uk_region' in df.columns:
+                norm = client_region.strip().lower()
+                df_regional_market = df[
+                    (df.get('has_salary_data', False) == True)
+                    & (df['primary_uk_region'].fillna('').str.strip().str.lower() == norm)
+                ]
+                if len(df_regional_market) == 0:
+                    df_regional_market = None  # No samples → drop regional line
+
+            client_color = JGP_COLORS['negative']      # red — your mean
+            national_color = JGP_COLORS['amber']       # amber — national mean
+            regional_color = JGP_COLORS['deep_green']  # green — regional mean
+
+            per_occ = []
+            for occ in top_occupations:
+                client_occ = client_with_salary[client_with_salary['occupation'] == occ]
+                client_mean = client_occ['annual_mid_salary'].mean()
+
+                market_occ = df[(df['occupation'] == occ) & (df.get('has_salary_data', False) == True)]
+                market_salaries = market_occ['annual_mid_salary'].dropna()
+                national_mean = market_salaries.mean() if len(market_salaries) else np.nan
+
+                if df_regional_market is not None:
+                    reg_vals = df_regional_market[df_regional_market['occupation'] == occ]['annual_mid_salary'].dropna()
+                    regional_mean = reg_vals.mean() if len(reg_vals) >= 3 else np.nan
+                    regional_n = len(reg_vals)
+                else:
+                    regional_mean = np.nan
+                    regional_n = 0
+
+                per_occ.append({
+                    'occupation': occ,
+                    'client_n': len(client_occ),
+                    'market_n': len(market_salaries),
+                    'regional_n': regional_n,
+                    'market_salaries': market_salaries,
+                    'client_mean': client_mean,
+                    'national_mean': national_mean,
+                    'regional_mean': regional_mean,
+                })
+
+            any_regional = any(not pd.isna(p['regional_mean']) for p in per_occ)
+
+            n_occ = len(per_occ)
+            n_cols = 2
+            n_rows = (n_occ + n_cols - 1) // n_cols  # ceil
+
+            subplot_titles = [
+                f"{p['occupation']} — your n={p['client_n']}, market n={p['market_n']:,}"
+                for p in per_occ
+            ]
+
+            fig_salary_occ = make_subplots(
+                rows=n_rows, cols=n_cols,
+                subplot_titles=subplot_titles,
+                vertical_spacing=0.12,
+                horizontal_spacing=0.10,
+            )
+
+            for i, p in enumerate(per_occ):
+                row = i // n_cols + 1
+                col = i % n_cols + 1
+
+                fig_salary_occ.add_trace(
+                    go.Histogram(
+                        x=p['market_salaries'],
+                        nbinsx=25,
+                        marker_color=JGP_COLORS['primary'],
+                        opacity=0.85,
+                        showlegend=False,
+                        hovertemplate='Salary: £%{x:,.0f}<br>Vacancies: %{y}<extra></extra>',
+                    ),
+                    row=row, col=col,
+                )
+
+                if not pd.isna(p['client_mean']):
+                    fig_salary_occ.add_vline(
+                        x=p['client_mean'], line_width=2.5, line_color=client_color,
+                        row=row, col=col,
+                    )
+                if not pd.isna(p['national_mean']):
+                    fig_salary_occ.add_vline(
+                        x=p['national_mean'], line_width=2, line_color=national_color,
+                        row=row, col=col,
+                    )
+                if not pd.isna(p['regional_mean']):
+                    fig_salary_occ.add_vline(
+                        x=p['regional_mean'], line_width=2, line_color=regional_color,
+                        row=row, col=col,
+                    )
+
+            # Legend traces — invisible scatters drawn once on subplot (1,1)
+            # so the figure-level legend has labelled rows for each line.
+            fig_salary_occ.add_trace(
+                go.Scatter(
+                    x=[None], y=[None], mode='lines',
+                    line=dict(color=client_color, width=2.5),
+                    name='Your mean',
+                ),
+                row=1, col=1,
+            )
+            fig_salary_occ.add_trace(
+                go.Scatter(
+                    x=[None], y=[None], mode='lines',
+                    line=dict(color=national_color, width=2),
+                    name='National mean',
+                ),
+                row=1, col=1,
+            )
+            if any_regional:
+                fig_salary_occ.add_trace(
+                    go.Scatter(
+                        x=[None], y=[None], mode='lines',
+                        line=dict(color=regional_color, width=2),
+                        name=f"Regional mean ({client_region})",
+                    ),
+                    row=1, col=1,
+                )
+
+            # Two-call layout pattern avoids Python kwarg conflicts when
+            # overriding template keys (see lessons.md "Spreading
+            # JGP_PLOTLY_TEMPLATE['layout']").
+            fig_salary_occ.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+            fig_salary_occ.update_layout(
+                height=max(360, 240 * n_rows),
+                showlegend=True,
+                legend=dict(
+                    orientation='h',
+                    yanchor='bottom', y=1.04,
+                    xanchor='left', x=0,
+                    font=dict(size=12),
+                ),
+                bargap=0.05,
+            )
+            fig_salary_occ.update_xaxes(tickformat=',', tickprefix='£')
+            fig_salary_occ.update_annotations(font_size=12)
+
+            st.plotly_chart(fig_salary_occ, use_container_width=True)
+            st.caption(CHART_EXPLAINERS['salary_by_occupation'])
+
+            if not client_region:
+                st.caption(
+                    "_HQ region unavailable for this client — regional benchmark "
+                    "line omitted. (Common for central-government and multi-site "
+                    "bodies.)_"
+                )
+            elif not any_regional:
+                st.caption(
+                    f"_No comparable salary data found in {client_region} for "
+                    f"these occupations — regional benchmark line omitted._"
+                )
+
+            report_figures['salary_by_occupation'] = fig_salary_occ
+
+            # Expose for downstream commentary generator
+            salary_per_occ = per_occ
+            salary_client_region = client_region
+
+    st.markdown("---")
+
+    # ===================================================================
     # SECTION 5: MEDIA PERFORMANCE
     # ===================================================================
     st.subheader(f"Media Performance — {selected_client}")
@@ -1165,6 +1437,11 @@ def render_client_report(df, media_df=None):
         'cat_stats': cat_stats,
         'client_name': selected_client,
     })
+    salary_struct = generate_section_commentary_structured('salary', {
+        'per_occ': salary_per_occ,
+        'client_name': selected_client,
+        'client_region': salary_client_region,
+    })
 
     # --- Build report_metrics dict (matches template tag names) ---
     report_metrics = {
@@ -1210,7 +1487,13 @@ def render_client_report(df, media_df=None):
         'commentary_roi_point_1': roi_struct['point_1'],
         'commentary_roi_point_2': roi_struct['point_2'],
 
-        # Slide 6 commentary
+        # Slide 6 commentary (Salary Benchmark)
+        'commentary_salary_intro': salary_struct['intro'],
+        'commentary_salary_point_1': salary_struct['point_1'],
+        'commentary_salary_point_2': salary_struct['point_2'],
+        'commentary_salary_point_3': salary_struct['point_3'],
+
+        # Slide 7 commentary
         'commentary_media_intro': media_struct['intro'],
         'commentary_media_point_1': media_struct['point_1'],
         'commentary_media_point_2': media_struct['point_2'],
@@ -1234,6 +1517,7 @@ def render_client_report(df, media_df=None):
         'postings_by_type': report_figures.get('postings'),
         'spend_vs_ratecard': report_figures.get('spend_vs_ratecard'),
         'cost_per_app_by_occupation': report_figures.get('cost_per_app_by_occupation'),
+        'salary_by_occupation': report_figures.get('salary_by_occupation'),
         'media_performance': report_figures.get('media'),
     }
 
@@ -1377,10 +1661,19 @@ def generate_client_report_pptx(metrics, figures, template_path):
                     chart_replacements.append((slide, shape, m.group(1)))
 
     # --- Step 2: Replace text placeholders on every shape across all slides ---
+    # `slide_number` and `total_slides` are computed per-slide so a single
+    # template footer like `{{slide_number}} / {{total_slides}}` renders as
+    # "1 / 9" on slide 1, "2 / 9" on slide 2, etc.
     text_replacements = {k: v for k, v in metrics.items()}
-    for slide in prs.slides:
+    total_slides = len(prs.slides)
+    for idx, slide in enumerate(prs.slides, start=1):
+        per_slide = {
+            **text_replacements,
+            'slide_number': idx,
+            'total_slides': total_slides,
+        }
         for shape in slide.shapes:
-            _replace_text_in_shape(shape, text_replacements)
+            _replace_text_in_shape(shape, per_slide)
 
     # --- Step 3: Replace chart placeholders with images ---
     for slide, shape, slot_name in chart_replacements:

@@ -59,3 +59,14 @@ tasks/
 Upload location
 check_table_exists.py
 UPLOAD_INSTRUCTIONS.md
+
+# Brand kit — source materials only. The runtime app reads from
+# `assets/brand/` (curated subset), not these folders.
+/Brand/
+brand-kit/
+# But DO track the curated brand assets we ship with the app
+# (logos + favicon used by the dashboard at runtime). The
+# leading `!` overrides the case-insensitive `Brand/` match
+# that macOS APFS would otherwise apply to `assets/brand/`.
+!assets/brand/
+!assets/brand/**

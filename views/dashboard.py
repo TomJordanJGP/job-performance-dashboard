@@ -199,7 +199,7 @@ def render_dashboard(df, daily_totals=None, region_df=None):
                 x=trend_data['event_date'],
                 y=trend_data['active_vacancies'],
                 name='Total (deduplicated)',
-                line=dict(color=JGP_COLORS['amber'], width=3),
+                line=dict(color=JGP_COLORS['blue'], width=3),
                 mode='lines',
             ))
             fig_vac.update_layout(
@@ -256,7 +256,7 @@ def render_dashboard(df, daily_totals=None, region_df=None):
                     'England': JGP_COLORS['primary'],
                     'Scotland': JGP_COLORS['supporting'],
                     'Wales': JGP_COLORS['deep_green'],
-                    'Northern Ireland': JGP_COLORS['amber'],
+                    'Northern Ireland': JGP_COLORS['blue'],
                 }
                 for country in chart_df['Country'].unique():
                     country_data = chart_df[chart_df['Country'] == country]

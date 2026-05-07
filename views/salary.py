@@ -32,7 +32,7 @@ def _competitiveness_color(percentile):
     if percentile >= 60:
         return JGP_COLORS['deep_green']
     elif percentile >= 40:
-        return JGP_COLORS['amber']
+        return JGP_COLORS['blue']
     else:
         return JGP_COLORS['negative']
 
@@ -196,7 +196,7 @@ def render_salary(df, region_df=None):
 
             # Vertical lines - same solid style, 3 contrasting colours
             your_color = JGP_COLORS['negative']    # Red
-            median_color = JGP_COLORS['amber']     # Amber
+            median_color = JGP_COLORS['blue']      # Blue
             mean_color = JGP_COLORS['deep_green']  # Green
 
             fig.add_vline(x=input_salary, line_width=3, line_color=your_color)

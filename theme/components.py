@@ -1,15 +1,36 @@
-"""Reusable HTML component builders for JGP branded dashboard."""
+"""Reusable HTML component builders for JGP branded dashboard.
+
+Logos are inlined as SVG so the dashboard is self-contained on Streamlit Cloud
+(no static-file route or external CDN dependency). Colours flow from the CSS
+classes defined in `theme/css.py` — components stay structural, no inline hex
+literals here.
+"""
+
+from functools import lru_cache
+from pathlib import Path
+
+from theme.colors import JGP_LOGOS
+
+# Resolve asset paths relative to repo root, regardless of cwd.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+@lru_cache(maxsize=8)
+def _read_logo(token: str) -> str:
+    """Read a JGP logo SVG by token name (cached)."""
+    rel = JGP_LOGOS[token]
+    return (_REPO_ROOT / rel).read_text()
 
 
 def kpi_card(label, value, delta=None, delta_direction="neutral", quartiles=None):
     """Build a branded KPI card as HTML string.
 
     Args:
-        label: KPI label text (e.g., "Total Vacancies")
-        value: Formatted value string (e.g., "33,975")
-        delta: Optional delta text (e.g., "+5.2%")
-        delta_direction: "positive", "negative", or "neutral"
-        quartiles: Optional dict with 'top_25', 'middle_50', 'bottom_25' values to show as small text
+        label: KPI label text (e.g., "Total Vacancies").
+        value: Formatted value string (e.g., "33,975").
+        delta: Optional delta text (e.g., "+5.2%").
+        delta_direction: "positive", "negative", or "neutral".
+        quartiles: Optional dict with 'top_25', 'middle_50', 'bottom_25'.
     """
     delta_html = ""
     if delta:
@@ -20,19 +41,18 @@ def kpi_card(label, value, delta=None, delta_direction="neutral", quartiles=None
     quartile_html = ""
     if quartiles:
         quartile_html = (
-            '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(100,55,145,0.15);'
-            'font-family:DM Sans,sans-serif;font-size:11px;display:flex;gap:0;">'
-            '<div style="flex:1;text-align:center;">'
-            '<div style="color:#c0392b;font-weight:500;">Low 25%</div>'
-            f'<div style="color:#c0392b;">{quartiles["bottom_25"]}</div>'
+            '<div class="kpi-quartiles">'
+            '<div class="q-cell">'
+            '<div class="q-low q-label">Low 25%</div>'
+            f'<div class="q-low">{quartiles["bottom_25"]}</div>'
             '</div>'
-            '<div style="flex:1;text-align:center;border-left:1px solid rgba(100,55,145,0.15);border-right:1px solid rgba(100,55,145,0.15);">'
-            '<div style="color:#643791;font-weight:500;">Mid 50%</div>'
-            f'<div style="color:#643791;">{quartiles["middle_50"]}</div>'
+            '<div class="q-cell">'
+            '<div class="q-mid q-label">Mid 50%</div>'
+            f'<div class="q-mid">{quartiles["middle_50"]}</div>'
             '</div>'
-            '<div style="flex:1;text-align:center;">'
-            '<div style="color:#2e4500;font-weight:500;">Top 25%</div>'
-            f'<div style="color:#2e4500;">{quartiles["top_25"]}</div>'
+            '<div class="q-cell">'
+            '<div class="q-top q-label">Top 25%</div>'
+            f'<div class="q-top">{quartiles["top_25"]}</div>'
             '</div>'
             '</div>'
         )
@@ -62,7 +82,7 @@ def filter_tags(filters_dict):
     """Build a row of filter tag pills showing active filters.
 
     Args:
-        filters_dict: Dictionary of applied filters from session state
+        filters_dict: Dictionary of applied filters from session state.
     """
     if not filters_dict:
         return ""
@@ -138,24 +158,28 @@ def empty_state(message, icon="inbox"):
     '''
 
 
-def sidebar_logo():
-    """Build the JGP logo for the sidebar."""
-    return '''
+def sidebar_logo(subtitle: str = "Job Performance Dashboard") -> str:
+    """Render the official JGP logo (white variant) for the dark sidebar."""
+    svg = _read_logo('white')
+    return f'''
     <div class="jgp-logo-container">
-        <div>
-            <span class="jgp-logo-icon">Go</span>
-            <span class="jgp-logo-text">Jobs Go Public</span>
-        </div>
-        <p class="jgp-logo-subtitle">Job Performance Dashboard</p>
+        <div class="jgp-logo-wrap">{svg}</div>
+        <p class="jgp-logo-subtitle">{subtitle}</p>
     </div>
     '''
 
 
-def main_logo():
-    """Build the JGP logo for the main content area (above tabs)."""
-    return '''
+def main_logo(title: str = "Job Performance Dashboard") -> str:
+    """Render the official JGP logo (full colour) above the main tabs."""
+    svg = _read_logo('full_colour')
+    return f'''
     <div class="main-logo">
-        <span class="main-logo-icon">Go</span>
-        <span class="main-logo-title">Job Performance Dashboard</span>
+        <div class="main-logo-wrap">{svg}</div>
+        <span class="main-logo-title">{title}</span>
     </div>
     '''
+
+
+def sidebar_section_header(label: str) -> str:
+    """Render a sidebar section label (e.g. 'Filters') as branded HTML."""
+    return f'<div class="jgp-sidebar-section">{label}</div>'

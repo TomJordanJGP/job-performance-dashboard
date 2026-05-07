@@ -3,10 +3,12 @@
 import streamlit as st
 from datetime import datetime
 
+from theme.colors import JGP_LOGOS
+
 # Page configuration (must be first Streamlit command)
 st.set_page_config(
     page_title="JGP Job Performance Dashboard",
-    page_icon="\U0001F4CA",
+    page_icon=JGP_LOGOS['favicon'],
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -16,7 +18,7 @@ from theme.css import inject_css
 inject_css()
 
 # Import modules
-from theme.components import sidebar_logo, main_logo
+from theme.components import sidebar_logo, main_logo, sidebar_section_header
 from data.loader import load_all_data
 from data.processing import (
     prepare_enriched_data,
@@ -71,7 +73,7 @@ def main():
 
     # === SIDEBAR FILTERS ===
     with st.sidebar:
-        st.markdown('<div style="font-family:DM Sans,sans-serif;font-weight:700;font-size:14px;color:#9c67d3;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Filters</div>', unsafe_allow_html=True)
+        st.markdown(sidebar_section_header("Filters"), unsafe_allow_html=True)
         filters, apply_clicked = create_sidebar_filters(df, region_df=region_df)
 
         # Apply filters to session state

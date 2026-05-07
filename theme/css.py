@@ -1,27 +1,49 @@
-"""JGP branded CSS for Streamlit dashboard."""
+"""JGP branded CSS for Streamlit dashboard.
+
+All colours flow from theme.colors.JGP_COLORS — no literal hex codes are
+written here. Logo SVG sizing rules and a brand-kit-compliant focus ring
+(focus_outer + focus_inner) are included so the dashboard meets WCAG 2.2 AA
+keyboard-access requirements.
+"""
 
 import streamlit as st
 
-# All CSS assembled as a single string for injection
-FULL_CSS = """
+from theme.colors import JGP_COLORS, HOVER_PRIMARY
+
+
+def _build_css() -> str:
+    """Compose the full CSS payload, interpolating brand tokens."""
+    c = JGP_COLORS
+    border_dim = c['border']
+    return f"""
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <style>
     /* ==========================================
-       FONTS
+       FONTS — DM Sans (brand) with weights 400/500/600/700
        ========================================== */
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
 
-    html, body, [class*="css"] {
+    html, body, [class*="css"] {{
         font-family: 'DM Sans', sans-serif !important;
-    }
+    }}
+
+    /* ==========================================
+       FOCUS RING (WCAG 2.2 AA) — brand-kit focus pair
+       ========================================== */
+    *:focus-visible {{
+        outline: 3px solid {c['focus_inner']};
+        outline-offset: 0;
+        box-shadow: 0 0 0 6px {c['focus_outer']};
+        border-radius: 4px;
+    }}
 
     /* ==========================================
        SIDEBAR
        ========================================== */
-    [data-testid="stSidebar"] {
-        background-color: #240f45;
+    [data-testid="stSidebar"] {{
+        background-color: {c['deep_blue']};
         padding-top: 0;
-    }
+    }}
 
     [data-testid="stSidebar"] [data-testid="stMarkdown"],
     [data-testid="stSidebar"] label,
@@ -31,443 +53,444 @@ FULL_CSS = """
     [data-testid="stSidebar"] .stTextInput label,
     [data-testid="stSidebar"] p,
     [data-testid="stSidebar"] span,
-    [data-testid="stSidebar"] .stSlider label {
-        color: #ffffff !important;
-    }
+    [data-testid="stSidebar"] .stSlider label {{
+        color: {c['white']} !important;
+    }}
 
-    [data-testid="stSidebar"] hr {
+    [data-testid="stSidebar"] hr {{
         border-color: rgba(255,255,255,0.15);
-    }
+    }}
 
-    /* Sidebar inputs - consistent white style */
     [data-testid="stSidebar"] .stDateInput input,
-    [data-testid="stSidebar"] .stTextInput input {
-        background-color: #ffffff;
-        color: #240f45;
-        border-color: #9c67d3;
+    [data-testid="stSidebar"] .stTextInput input {{
+        background-color: {c['white']};
+        color: {c['deep_blue']};
+        border-color: {border_dim};
         border-radius: 6px;
-    }
+    }}
 
-    [data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] {
-        background-color: #ffffff;
-        border-color: #9c67d3;
+    [data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] {{
+        background-color: {c['white']};
+        border-color: {border_dim};
         border-radius: 6px;
-    }
+    }}
 
-    [data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] span {
-        color: #240f45 !important;
-    }
+    [data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] span {{
+        color: {c['deep_blue']} !important;
+    }}
 
-    /* Sidebar button */
-    [data-testid="stSidebar"] .stButton > button[kind="primary"] {
-        background-color: #643791;
+    /* Sidebar primary button */
+    [data-testid="stSidebar"] .stButton > button[kind="primary"] {{
+        background-color: {c['primary']};
         border: none;
-        color: #ffffff;
+        color: {c['white']};
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;
         border-radius: 6px;
         padding: 0.5rem 1rem;
         transition: background-color 200ms ease;
-    }
+    }}
 
-    [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
-        background-color: #7b4aab;
-    }
+    [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {{
+        background-color: {HOVER_PRIMARY};
+    }}
 
-    /* Refresh button (secondary) */
-    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {
+    /* Sidebar refresh / secondary button */
+    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {{
         background-color: transparent;
-        border: 1px solid #9c67d3;
-        color: #e5ff6e;
+        border: 1px solid {c['supporting']};
+        color: {c['accent']};
         font-family: 'DM Sans', sans-serif;
         font-weight: 500;
         border-radius: 6px;
         transition: all 200ms ease;
-    }
+    }}
 
-    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]):hover {
+    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]):hover {{
         background-color: rgba(229, 255, 110, 0.1);
-        border-color: #e5ff6e;
-    }
+        border-color: {c['accent']};
+    }}
 
     /* ==========================================
-       LOGO
+       LOGO (sidebar)
        ========================================== */
-    .jgp-logo-container {
-        background-color: #240f45;
+    .jgp-logo-container {{
+        background-color: {c['deep_blue']};
         padding: 20px 16px 12px 16px;
         margin: -1rem -1rem 0.25rem -1rem;
-        border-bottom: 2px solid #643791;
-    }
+        border-bottom: 2px solid {c['primary']};
+    }}
 
-    .jgp-logo-text {
-        font-family: 'DM Sans', sans-serif;
-        font-weight: 700;
-        font-size: 20px;
-        color: #ffffff;
-        margin: 0;
-        letter-spacing: -0.3px;
-    }
+    .jgp-logo-wrap {{
+        display: block;
+        margin-bottom: 6px;
+    }}
 
-    .jgp-logo-subtitle {
+    .jgp-logo-wrap svg {{
+        height: 32px;
+        width: auto;
+        max-width: 100%;
+    }}
+
+    .jgp-logo-subtitle {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 400;
         font-size: 12px;
-        color: #9c67d3;
-        margin: 2px 0 0 0;
-    }
+        color: {c['supporting']};
+        margin: 4px 0 0 0;
+    }}
 
-    .jgp-logo-icon {
-        display: inline-block;
-        background-color: #643791;
-        color: #ffffff;
+    /* Sidebar section labels (e.g. "Filters") — replaces inline-styled markdown */
+    .jgp-sidebar-section {{
+        font-family: 'DM Sans', sans-serif;
         font-weight: 700;
         font-size: 14px;
-        padding: 3px 8px;
-        border-radius: 4px;
-        margin-right: 8px;
-        font-family: 'DM Sans', sans-serif;
-    }
+        color: {c['supporting']};
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 8px;
+    }}
 
     /* ==========================================
        TABS
        ========================================== */
-    .stTabs [data-baseweb="tab-list"] {
+    .stTabs [data-baseweb="tab-list"] {{
         gap: 0;
-        background-color: #f8f6fb;
+        background-color: {c['surface_warm']};
         border-radius: 8px;
         padding: 4px;
-    }
+    }}
 
-    .stTabs [data-baseweb="tab"] {
+    .stTabs [data-baseweb="tab"] {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 500;
         font-size: 14px;
-        color: #643791;
+        color: {c['primary']};
         border-radius: 6px;
         padding: 8px 20px;
         transition: all 200ms ease;
-    }
+    }}
 
-    .stTabs [data-baseweb="tab"]:hover {
-        background-color: #e8e0f2;
-    }
+    .stTabs [data-baseweb="tab"]:hover {{
+        background-color: {c['light_purple']};
+    }}
 
-    .stTabs [aria-selected="true"] {
-        background-color: #643791 !important;
-        color: #ffffff !important;
+    .stTabs [aria-selected="true"] {{
+        background-color: {c['primary']} !important;
+        color: {c['white']} !important;
         font-weight: 700;
-    }
+    }}
 
-    /* Hide default Streamlit tab indicator line */
-    .stTabs [data-baseweb="tab-highlight"] {
+    .stTabs [data-baseweb="tab-highlight"],
+    .stTabs [data-baseweb="tab-border"] {{
         display: none;
-    }
-
-    .stTabs [data-baseweb="tab-border"] {
-        display: none;
-    }
+    }}
 
     /* ==========================================
        KPI CARDS
        ========================================== */
-    .kpi-card {
-        background: linear-gradient(135deg, #f8f6fb 0%, #e8e0f2 100%);
-        border-left: 4px solid #643791;
+    .kpi-card {{
+        background: linear-gradient(135deg, {c['surface_warm']} 0%, {c['light_purple']} 100%);
+        border-left: 4px solid {c['primary']};
         border-radius: 8px;
         padding: 16px 20px;
         margin-bottom: 8px;
-    }
+    }}
 
-    .kpi-label {
+    .kpi-label {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 500;
         font-size: 12px;
-        color: #643791;
+        color: {c['primary']};
         text-transform: uppercase;
         letter-spacing: 0.5px;
         margin-bottom: 4px;
-    }
+    }}
 
-    .kpi-value {
+    .kpi-value {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;
         font-size: 28px;
-        color: #240f45;
+        color: {c['deep_blue']};
         line-height: 1.2;
-    }
+    }}
 
-    .kpi-delta {
+    .kpi-delta {{
         font-family: 'DM Sans', sans-serif;
         font-size: 13px;
         margin-top: 4px;
-    }
+    }}
 
-    .kpi-delta.positive { color: #2e4500; }
-    .kpi-delta.negative { color: #c0392b; }
-    .kpi-delta.neutral  { color: #9c67d3; }
+    .kpi-delta.positive {{ color: {c['positive']}; }}
+    .kpi-delta.negative {{ color: {c['negative']}; }}
+    .kpi-delta.neutral  {{ color: {c['neutral']}; }}
 
-    .kpi-quartiles {
+    .kpi-quartiles {{
         display: flex;
-        flex-direction: column;
-        gap: 2px;
+        flex-direction: row;
+        gap: 0;
         margin-top: 8px;
         padding-top: 8px;
-        border-top: 1px solid rgba(100, 55, 145, 0.15);
-    }
-
-    .kpi-quartiles span {
+        border-top: 1px solid {border_dim};
         font-family: 'DM Sans', sans-serif;
         font-size: 11px;
-        font-weight: 400;
-    }
+    }}
 
-    .kpi-quartiles .q-top { color: #2e4500; }
-    .kpi-quartiles .q-mid { color: #643791; }
-    .kpi-quartiles .q-low { color: #c0392b; }
+    .kpi-quartiles .q-cell {{
+        flex: 1;
+        text-align: center;
+    }}
+
+    .kpi-quartiles .q-cell + .q-cell {{
+        border-left: 1px solid {border_dim};
+    }}
+
+    .kpi-quartiles .q-low   {{ color: {c['negative']}; }}
+    .kpi-quartiles .q-mid   {{ color: {c['primary']}; }}
+    .kpi-quartiles .q-top   {{ color: {c['positive']}; }}
+    .kpi-quartiles .q-label {{ font-weight: 500; }}
 
     /* ==========================================
        MAIN LOGO (above tabs)
        ========================================== */
-    .main-logo {
+    .main-logo {{
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 12px;
         margin-bottom: 16px;
         padding-bottom: 12px;
-        border-bottom: 2px solid #e8e0f2;
-    }
+        border-bottom: 2px solid {c['light_purple']};
+    }}
 
-    .main-logo-icon {
-        display: inline-block;
-        background-color: #643791;
-        color: #ffffff;
-        font-weight: 700;
-        font-size: 16px;
-        padding: 4px 10px;
-        border-radius: 4px;
-        font-family: 'DM Sans', sans-serif;
-    }
+    .main-logo-wrap svg {{
+        height: 36px;
+        width: auto;
+        max-width: 100%;
+        display: block;
+    }}
 
-    .main-logo-title {
+    .main-logo-title {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;
         font-size: 24px;
-        color: #240f45;
-    }
+        color: {c['deep_blue']};
+    }}
 
     /* ==========================================
        PAGE HEADERS
        ========================================== */
-    .page-header {
+    .page-header {{
         margin-bottom: 16px;
-    }
+    }}
 
-    .page-header h1 {
+    .page-header h1 {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;
         font-size: 28px;
-        color: #240f45;
+        color: {c['deep_blue']};
         margin: 0 0 4px 0;
-    }
+    }}
 
-    .page-header .subtitle {
+    .page-header .subtitle {{
         font-family: 'DM Sans', sans-serif;
         font-size: 14px;
-        color: #9c67d3;
+        color: {c['text_secondary']};
         margin: 0;
-    }
+    }}
 
     /* ==========================================
        FILTER TAGS
        ========================================== */
-    .filter-tags {
+    .filter-tags {{
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
         margin-bottom: 16px;
-    }
+    }}
 
-    .filter-tag {
+    .filter-tag {{
         display: inline-flex;
         align-items: center;
-        background-color: #e8e0f2;
-        color: #643791;
+        background-color: {c['light_purple']};
+        color: {c['primary']};
         font-family: 'DM Sans', sans-serif;
         font-size: 12px;
         font-weight: 500;
         padding: 4px 10px;
         border-radius: 20px;
         white-space: nowrap;
-    }
+    }}
 
-    .filter-tag i {
+    .filter-tag i {{
         margin-right: 4px;
         font-size: 11px;
-    }
+    }}
 
     /* ==========================================
        SECTION HEADERS
        ========================================== */
-    .section-header {
+    .section-header {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;
         font-size: 18px;
-        color: #240f45;
+        color: {c['deep_blue']};
         margin: 24px 0 12px 0;
         display: flex;
         align-items: center;
         gap: 8px;
-    }
+    }}
 
-    .section-header i {
-        color: #643791;
+    .section-header i {{
+        color: {c['primary']};
         font-size: 18px;
-    }
+    }}
 
     /* ==========================================
        BRANDED DIVIDER
        ========================================== */
-    .branded-divider {
+    .branded-divider {{
         height: 2px;
-        background: linear-gradient(to right, #643791, #e8e0f2, transparent);
+        background: linear-gradient(to right, {c['primary']}, {c['light_purple']}, transparent);
         border: none;
         margin: 24px 0;
-    }
+    }}
 
     /* ==========================================
        NOTICE BOX
        ========================================== */
-    .notice-box {
-        background-color: #f0f3e1;
-        border-left: 4px solid #e5ff6e;
+    .notice-box {{
+        background-color: {c['surface_warm']};
+        border-left: 4px solid {c['accent']};
         border-radius: 6px;
         padding: 12px 16px;
         font-family: 'DM Sans', sans-serif;
         font-size: 13px;
-        color: #240f45;
+        color: {c['deep_blue']};
         margin-bottom: 16px;
-    }
+    }}
 
-    .notice-box i {
-        color: #2e4500;
+    .notice-box i {{
+        color: {c['deep_green']};
         margin-right: 6px;
-    }
+    }}
 
     /* ==========================================
        EMPTY STATE
        ========================================== */
-    .empty-state {
+    .empty-state {{
         text-align: center;
         padding: 40px 20px;
-        color: #9c67d3;
+        color: {c['text_muted']};
         font-family: 'DM Sans', sans-serif;
-    }
+    }}
 
-    .empty-state i {
+    .empty-state i {{
         font-size: 48px;
         display: block;
         margin-bottom: 12px;
-        color: #e8e0f2;
-    }
+        color: {c['light_purple']};
+    }}
 
-    .empty-state p {
+    .empty-state p {{
         font-size: 14px;
         margin: 0;
-    }
+    }}
 
     /* ==========================================
        DOWNLOAD BUTTON
        ========================================== */
-    .stDownloadButton > button {
+    .stDownloadButton > button {{
         background-color: transparent;
-        border: 1px solid #643791;
-        color: #643791;
+        border: 1px solid {c['primary']};
+        color: {c['primary']};
         font-family: 'DM Sans', sans-serif;
         font-weight: 500;
         border-radius: 6px;
         transition: all 200ms ease;
-    }
+    }}
 
-    .stDownloadButton > button:hover {
-        background-color: #643791;
-        color: #ffffff;
-    }
+    .stDownloadButton > button:hover {{
+        background-color: {c['primary']};
+        color: {c['white']};
+    }}
 
     /* ==========================================
        GENERAL OVERRIDES
        ========================================== */
 
     /* Primary button */
-    .stButton > button[kind="primary"] {
-        background-color: #643791;
+    .stButton > button[kind="primary"] {{
+        background-color: {c['primary']};
         border: none;
-        color: #ffffff;
+        color: {c['white']};
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;
         border-radius: 6px;
         transition: background-color 200ms ease;
-    }
+    }}
 
-    .stButton > button[kind="primary"]:hover {
-        background-color: #7b4aab;
-    }
+    .stButton > button[kind="primary"]:hover {{
+        background-color: {HOVER_PRIMARY};
+    }}
 
-    /* Metric cards (Streamlit default) - style override */
-    [data-testid="stMetric"] {
-        background: linear-gradient(135deg, #f8f6fb 0%, #e8e0f2 100%);
-        border-left: 4px solid #643791;
+    /* Streamlit metric (default st.metric) */
+    [data-testid="stMetric"] {{
+        background: linear-gradient(135deg, {c['surface_warm']} 0%, {c['light_purple']} 100%);
+        border-left: 4px solid {c['primary']};
         border-radius: 8px;
         padding: 12px 16px;
-    }
+    }}
 
-    [data-testid="stMetric"] label {
+    [data-testid="stMetric"] label {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 500;
         font-size: 12px;
-        color: #643791 !important;
+        color: {c['primary']} !important;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-    }
+    }}
 
-    [data-testid="stMetric"] [data-testid="stMetricValue"] {
+    [data-testid="stMetric"] [data-testid="stMetricValue"] {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;
-        color: #240f45;
-    }
+        color: {c['deep_blue']};
+    }}
 
     /* Expander styling */
-    .streamlit-expanderHeader {
+    .streamlit-expanderHeader {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 500;
-        color: #643791;
-    }
+        color: {c['primary']};
+    }}
 
-    /* Selectbox */
-    .stSelectbox label {
+    /* Selectbox label */
+    .stSelectbox label {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 500;
-        color: #240f45;
-    }
+        color: {c['deep_blue']};
+    }}
 
-    /* Data loading spinner */
-    .stSpinner > div {
-        border-top-color: #643791 !important;
-    }
+    /* Loading spinner */
+    .stSpinner > div {{
+        border-top-color: {c['primary']} !important;
+    }}
 
-    /* Hide Streamlit footer and hamburger menu */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
+    /* Hide Streamlit default chrome */
+    #MainMenu {{ visibility: hidden; }}
+    footer    {{ visibility: hidden; }}
 
     /* Dataframe header */
-    .stDataFrame thead th {
-        background-color: #643791 !important;
-        color: #ffffff !important;
+    .stDataFrame thead th {{
+        background-color: {c['primary']} !important;
+        color: {c['white']} !important;
         font-family: 'DM Sans', sans-serif;
         font-weight: 500;
-    }
+    }}
 </style>
 """
+
+
+FULL_CSS = _build_css()
 
 
 def inject_css():

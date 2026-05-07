@@ -58,11 +58,72 @@ CHART_EXPLAINERS = {
     ),
     'salary_by_occupation': (
         "Market salary spread for your top 10 most-priced occupations. "
-        "Lines mark your mean (red), the national mean (amber) and your "
+        "Lines mark your mean (red), the national mean (blue) and your "
         "HQ-region mean (green). Ranked by count of priced vacancies; "
         "minimum 5 per occupation."
     ),
 }
+
+
+@st.cache_data(ttl=3600)
+def _read_chart_slot_dimensions(template_path: str, _mtime: float) -> dict:
+    """Inner cached reader. The `_mtime` arg is part of the cache key so the
+    cache invalidates automatically when the PPTX template is re-saved.
+    """
+    try:
+        prs = Presentation(template_path)
+    except Exception:
+        return {}
+    EMU_PER_CM = 360000
+    EMU_PER_PX = 9525
+    slots = {}
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if not shape.has_text_frame:
+                continue
+            text = shape.text_frame.text
+            m = re.search(r'\{\{chart:([^}]+)\}\}', text)
+            if not m:
+                continue
+            slot = m.group(1)
+            slots[slot] = {
+                'cm': (shape.width / EMU_PER_CM, shape.height / EMU_PER_CM),
+                'px': (int(shape.width / EMU_PER_PX), int(shape.height / EMU_PER_PX)),
+            }
+    return slots
+
+
+def get_chart_slot_dimensions(template_path: str = 'Renewals.pptx') -> dict:
+    """Return the on-slide size (cm + px) of every {{chart:slot}} placeholder.
+
+    Re-reads the template whenever the file is modified (cache key includes
+    mtime). Used to surface placeholder geometry on the dashboard so chart
+    text sizing can be reasoned about against the actual rendered PPTX
+    (text px in the export equals displayed px in the slide).
+
+    Returns:
+        {slot_name: {'cm': (w, h), 'px': (w, h)}} or {} if the template can't
+        be opened.
+    """
+    import os
+    try:
+        mtime = os.path.getmtime(template_path)
+    except OSError:
+        mtime = 0.0
+    return _read_chart_slot_dimensions(template_path, mtime)
+
+
+def chart_caption(slot_name: str, slot_dims: dict) -> str:
+    """Build the on-screen caption for a chart: explainer + PPTX slot size."""
+    explainer = CHART_EXPLAINERS.get(slot_name, '')
+    dim = slot_dims.get(slot_name)
+    if not dim:
+        return explainer
+    cm_w, cm_h = dim['cm']
+    px_w, px_h = dim['px']
+    size_line = (f"_PPTX placeholder: {cm_w:.1f} × {cm_h:.1f} cm "
+                 f"({px_w} × {px_h} px on slide)._")
+    return f"{explainer}  \n{size_line}"
 
 
 def generate_section_commentary(section, data):
@@ -517,6 +578,11 @@ def render_client_report(df, media_df=None):
     """Render the Client Report tab — branded PPTX advertising report for renewals."""
     st.header("Client Advertising Report")
 
+    # PPTX placeholder geometry — surfaced in each chart caption so the user can
+    # reason about text sizing against the actual rendered slot. Cached for an
+    # hour; only re-reads `Renewals.pptx` if it changes.
+    slot_dims = get_chart_slot_dimensions()
+
     # --- Controls ---
     col_client, col_dates = st.columns(2)
     with col_client:
@@ -681,7 +747,7 @@ def render_client_report(df, media_df=None):
     # --- Brand colour + marker maps for 4 categories ---
     category_colors = {
         'Benchmarkable': JGP_COLORS['primary'],
-        'Zero Applies (Possible Redirect)': JGP_COLORS['amber'],
+        'Zero Applies (Possible Redirect)': JGP_COLORS['blue'],
         'Zero Applies (Low Traffic)': JGP_COLORS['negative'],
         'Low Sample (No Benchmark)': JGP_COLORS['light_purple'],
     }
@@ -736,7 +802,7 @@ def render_client_report(df, media_df=None):
                 yaxis=dict(gridcolor=JGP_COLORS['light_purple'], gridwidth=1, zeroline=False),
             )
             st.plotly_chart(fig_scatter, use_container_width=True)
-            st.caption(CHART_EXPLAINERS['benchmark_scatter'])
+            st.caption(chart_caption('benchmark_scatter', slot_dims))
             report_figures['scatter'] = fig_scatter
 
     with commentary_col:
@@ -812,8 +878,8 @@ def render_client_report(df, media_df=None):
             x=['Views', 'Applies'],
             y=[views_pct, applies_pct],
             marker_color=[
-                JGP_COLORS['positive'] if views_pct >= 100 else JGP_COLORS['amber'],
-                JGP_COLORS['positive'] if applies_pct >= 100 else JGP_COLORS['amber'],
+                JGP_COLORS['positive'] if views_pct >= 100 else JGP_COLORS['blue'],
+                JGP_COLORS['positive'] if applies_pct >= 100 else JGP_COLORS['blue'],
             ],
             text=[f"{views_pct:.0f}%", f"{applies_pct:.0f}%"],
             textposition='outside',
@@ -837,7 +903,7 @@ def render_client_report(df, media_df=None):
             plot_bgcolor='rgba(0,0,0,0)',
         )
         st.plotly_chart(fig_bench, use_container_width=True)
-        st.caption(CHART_EXPLAINERS['benchmark_average'])
+        st.caption(chart_caption('benchmark_average', slot_dims))
         report_figures['benchmark_combined'] = fig_bench
 
     with bench_commentary_col:
@@ -891,7 +957,7 @@ def render_client_report(df, media_df=None):
             bargap=0.1, bargroupgap=0.0,
         )
         st.plotly_chart(fig_postings, use_container_width=True)
-        st.caption(CHART_EXPLAINERS['postings_by_type'])
+        st.caption(chart_caption('postings_by_type', slot_dims))
         report_figures['postings'] = fig_postings
 
     with commentary_col3:
@@ -958,7 +1024,7 @@ def render_client_report(df, media_df=None):
                 plot_bgcolor='rgba(0,0,0,0)',
             )
             st.plotly_chart(fig_roi, use_container_width=True)
-            st.caption(CHART_EXPLAINERS['spend_vs_ratecard'])
+            st.caption(chart_caption('spend_vs_ratecard', slot_dims))
             report_figures['roi_cost'] = fig_roi
 
             # Cost per apply by type chart
@@ -975,7 +1041,7 @@ def render_client_report(df, media_df=None):
                 fig_cpa = go.Figure()
                 fig_cpa.add_trace(go.Bar(
                     y=roi_by_type['occupation'], x=roi_by_type['cost_per_apply'],
-                    orientation='h', marker_color=JGP_COLORS['amber'],
+                    orientation='h', marker_color=JGP_COLORS['blue'],
                     text=roi_by_type['cost_per_apply'].apply(lambda x: f"£{x:,.2f}"),
                     textposition='outside'
                 ))
@@ -987,7 +1053,7 @@ def render_client_report(df, media_df=None):
                     plot_bgcolor='rgba(0,0,0,0)',
                 )
                 st.plotly_chart(fig_cpa, use_container_width=True)
-                st.caption(CHART_EXPLAINERS['cost_per_app_by_occupation'])
+                st.caption(chart_caption('cost_per_app_by_occupation', slot_dims))
                 report_figures['roi_cpa'] = fig_cpa
 
         with roi_commentary_col:
@@ -1062,7 +1128,7 @@ def render_client_report(df, media_df=None):
                     df_regional_market = None  # No samples → drop regional line
 
             client_color = JGP_COLORS['negative']      # red — your mean
-            national_color = JGP_COLORS['amber']       # amber — national mean
+            national_color = JGP_COLORS['blue']        # blue — national mean
             regional_color = JGP_COLORS['deep_green']  # green — regional mean
 
             per_occ = []
@@ -1190,7 +1256,7 @@ def render_client_report(df, media_df=None):
             fig_salary_occ.update_annotations(font_size=12)
 
             st.plotly_chart(fig_salary_occ, use_container_width=True)
-            st.caption(CHART_EXPLAINERS['salary_by_occupation'])
+            st.caption(chart_caption('salary_by_occupation', slot_dims))
 
             if not client_region:
                 st.caption(
@@ -1254,7 +1320,7 @@ def render_client_report(df, media_df=None):
                 plot_bgcolor='rgba(0,0,0,0)',
             )
             st.plotly_chart(fig_media, use_container_width=True)
-            st.caption(CHART_EXPLAINERS['media_performance'])
+            st.caption(chart_caption('media_performance', slot_dims))
             report_figures['media'] = fig_media
 
             # Summary table below chart
@@ -1386,7 +1452,7 @@ def render_client_report(df, media_df=None):
                 y=roi_by_type_full['occupation'],
                 x=roi_by_type_full['cost_per_apply'],
                 orientation='h',
-                marker_color=JGP_COLORS['amber'],
+                marker_color=JGP_COLORS['blue'],
                 text=roi_by_type_full['cost_per_apply'].apply(lambda x: f"£{x:,.2f}"),
                 textposition='outside',
                 textfont=dict(color=JGP_COLORS['deep_blue']),
@@ -1557,64 +1623,135 @@ def generate_client_report_pptx(metrics, figures, template_path):
 
     # --- Helper: render a Plotly figure to PNG bytes at a target aspect ratio ---
     def _fig_to_png(fig, slot_width_emu=None, slot_height_emu=None):
-        """Render a Plotly figure to white-background PNG bytes.
+        """Render a Plotly figure to a high-DPI white-background PNG.
 
-        If slot dimensions are passed (the placeholder's .width/.height in
-        EMU), the PNG is rendered at that exact aspect ratio so PowerPoint
-        doesn't squash the bitmap when fitting it. Otherwise default to 16:9.
+        Critical sizing rule: the logical canvas is sized to the placeholder's
+        displayed pixel dimensions (1 px ≈ 9525 EMU at 96 DPI). Plotly font
+        sizes are in pixels *relative to the canvas*, so when the PNG is fitted
+        back into the placeholder the displayed font matches what we set.
+        The previous fixed 1800 px canvas made fonts shrink to 4–6 pt on small
+        placeholders like spend_vs_ratecard, regardless of how big the source
+        font was set.
 
-        Pixel target is 1500 on the longest side, then kaleido renders at
-        scale=4 — effectively very high DPI, sharp at any zoom and when
-        exported to PDF. Y/X axes use automargin so tick labels never clip.
+        Crispness comes from `scale=6` — a pure DPI multiplier on the rendered
+        bitmap that keeps the logical canvas (and therefore font sizing) intact.
+        Output is 6× the canvas dimensions, e.g. an 800 × 500 logical canvas
+        renders to a 4800 × 3000 PNG.
+
+        Font sizes are floored at 14 px ≈ 10.5 pt — the "no smaller than 10 pt"
+        readability target. Axis titles, bar value labels and chart titles step
+        up from there.
         """
         if fig is None:
             return None
         try:
-            # Match the placeholder aspect ratio but keep canvas dimensions
-            # constant across charts. Plotly font sizes are pixels relative to
-            # canvas, so a uniform canvas keeps text/legend/axes the same
-            # relative size on every slide. Crispness comes from `scale` (a
-            # pure DPI multiplier), not from a bigger canvas.
-            TARGET_LONG_PX = 1800
+            # 1 EMU = 1/914400 inch; ~9525 EMU per displayed pixel at 96 DPI.
+            EMU_PER_PX = 9525
+            # Small floor only as a safeguard against Plotly choking on tiny
+            # canvases — well below any realistic slide placeholder size.
+            MIN_W, MIN_H = 320, 220
             if slot_width_emu and slot_height_emu:
-                ratio = slot_width_emu / slot_height_emu
+                width = max(int(slot_width_emu / EMU_PER_PX), MIN_W)
+                height = max(int(slot_height_emu / EMU_PER_PX), MIN_H)
             else:
-                ratio = 16 / 9
-            if ratio >= 1:
-                width = TARGET_LONG_PX
-                height = int(round(TARGET_LONG_PX / ratio))
-            else:
-                height = TARGET_LONG_PX
-                width = int(round(TARGET_LONG_PX * ratio))
+                width, height = 1280, 720
 
             fig_export = go.Figure(fig.to_dict())
+            # Standard text scheme — DM Sans Regular (weight 400). Sizes match
+            # the last pass: with canvas = placeholder px, source px ≈ displayed
+            # px ≈ pt × 1.333:
+            #   13 px ≈ 10 pt → tick labels (x AND y), legend, scatter labels
+            #   16 px ≈ 12 pt → axis titles
+            #   12 px ≈  9 pt → bar/data value labels (explicit floor)
+            #   13 px ≈ 10 pt → in-chart annotations
+            #
+            # Background is fully transparent so the slide colour/shapes show
+            # through the chart PNG (PNG's alpha channel preserved by kaleido).
+            DM_SANS = 'DM Sans, sans-serif'
+            TRANSPARENT = 'rgba(0,0,0,0)'
             fig_export.update_layout(
-                paper_bgcolor='white',
-                plot_bgcolor='white',
-                font=dict(size=18),
-                # pad=15 puts visible space between tick labels and the plot.
-                margin=dict(l=120, r=40, t=60, b=80, pad=15),
-                # Override the JGP template's small (12pt) legend font for export.
-                legend=dict(font=dict(size=18)),
+                paper_bgcolor=TRANSPARENT,
+                plot_bgcolor=TRANSPARENT,
+                font=dict(family=DM_SANS,
+                          color=JGP_COLORS['deep_blue'], size=13),
+                # Drop the chart title — every slide has its own hard-coded title.
+                title=dict(text=''),
+                # Top margin tightened so the plot area extends as close to the
+                # top of the slot as possible.
+                margin=dict(l=80, r=40, t=15, b=70, pad=10),
+                legend=dict(
+                    # Legend stays partially translucent white so points behind
+                    # legend text remain readable on coloured slide backgrounds.
+                    bgcolor='rgba(255,255,255,0.6)',
+                    font=dict(family=DM_SANS, size=13),
+                ),
             )
-            fig_export.update_xaxes(automargin=True, title_font=dict(size=22))
-            fig_export.update_yaxes(automargin=True, title_font=dict(size=22))
-            # Force-set bar value-label size and disable auto-shrink. Plotly
-            # defaults constraintext='both' which silently shrinks text to fit
-            # inside the bar — that's why update_traces alone wasn't visibly
-            # bumping the dense postings chart and the narrow spend column.
-            for trace in fig_export.data:
-                if trace.type != 'bar':
-                    continue
-                preserved_color = None
-                if trace.textfont is not None and trace.textfont.color is not None:
-                    preserved_color = trace.textfont.color
-                trace.textfont = ({'size': 22, 'color': preserved_color}
-                                  if preserved_color else {'size': 22})
-                trace.constraintext = 'none'
+            fig_export.update_xaxes(
+                automargin=True,
+                title_font=dict(family=DM_SANS, size=16),
+                tickfont=dict(family=DM_SANS, size=13),
+            )
+            fig_export.update_yaxes(
+                automargin=True,
+                title_font=dict(family=DM_SANS, size=16),
+                tickfont=dict(family=DM_SANS, size=13),
+            )
 
-            # scale=6 → 10800 px on the long side. Maximum crispness; render
-            # time is a few seconds per chart, accepted for renewals reports.
+            # Trace-level overrides for export visibility. Disable Plotly's
+            # constraintext (defaults to 'both', which silently shrinks bar
+            # value labels to fit inside narrow bars — the root cause of the
+            # tiny "£spend" labels on spend_vs_ratecard).
+            for trace in fig_export.data:
+                t = trace.type
+                if t == 'bar':
+                    preserved_color = None
+                    if trace.textfont is not None and trace.textfont.color is not None:
+                        preserved_color = trace.textfont.color
+                    # 12 px ≈ 9 pt — explicit per user request.
+                    tf = {'family': DM_SANS, 'size': 12}
+                    if preserved_color:
+                        tf['color'] = preserved_color
+                    trace.textfont = tf
+                    trace.constraintext = 'none'
+                elif t == 'scatter':
+                    # Bump dot markers and line widths for slide visibility.
+                    marker = trace.marker
+                    if marker is not None:
+                        cur_size = marker.size
+                        if isinstance(cur_size, (int, float)):
+                            marker.size = max(cur_size, 14)
+                        elif cur_size is None:
+                            marker.size = 14
+                    line = trace.line
+                    if line is not None:
+                        cur_w = line.width
+                        if isinstance(cur_w, (int, float)):
+                            line.width = max(cur_w, 3.5)
+                    # Match scatter data labels to the universal 10 pt standard.
+                    tf_existing = trace.textfont
+                    if tf_existing is not None:
+                        trace.textfont = {
+                            'family': DM_SANS,
+                            'size': 13,
+                            'color': (tf_existing.color
+                                      if tf_existing.color
+                                      else JGP_COLORS['deep_blue']),
+                        }
+
+            # Annotation font (e.g. benchmark line callout on benchmark_average).
+            if fig_export.layout.annotations:
+                for ann in fig_export.layout.annotations:
+                    cur = (ann.font.size if ann.font and ann.font.size else None)
+                    ann.font = dict(
+                        family=DM_SANS,
+                        size=max(cur or 13, 13),
+                        color=(ann.font.color if ann.font and ann.font.color
+                               else JGP_COLORS['deep_blue']),
+                    )
+
+            # scale=6 → PNG is 6x the logical canvas (e.g. 800×500 → 4800×3000).
+            # Maximum crispness at the cost of a few seconds per chart and
+            # ~1–3 MB per PNG; acceptable for client renewal reports.
             return fig_export.to_image(format='png', width=width, height=height, scale=6)
         except Exception:
             return None

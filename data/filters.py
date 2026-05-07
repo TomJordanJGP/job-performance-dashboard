@@ -126,6 +126,16 @@ def create_sidebar_filters(df, key_prefix='global', region_df=None):
             key=f'{key_prefix}_upgrades'
         )
 
+    # Entity ID (vacancy ID)
+    if 'entity_id' in df.columns:
+        entity_ids = sorted(df['entity_id'].dropna().astype(str).unique())
+        filters['entity_id'] = st.sidebar.multiselect(
+            "Entity ID",
+            entity_ids,
+            key=f'{key_prefix}_entity_id',
+            placeholder="Search and select vacancy IDs"
+        )
+
     # Apply / Clear buttons
     btn_col1, btn_col2 = st.sidebar.columns(2)
     with btn_col1:
@@ -153,6 +163,7 @@ def create_sidebar_filters(df, key_prefix='global', region_df=None):
             f'{key_prefix}_company', f'{key_prefix}_country',
             f'{key_prefix}_region', f'{key_prefix}_occupation',
             f'{key_prefix}_title', f'{key_prefix}_upgrades',
+            f'{key_prefix}_entity_id',
         ]
         for key in widget_keys:
             st.session_state.pop(key, None)
@@ -247,6 +258,15 @@ def create_inline_filters(df, key_prefix):
             key=f'{key_prefix}_upgrades'
         )
 
+    # Entity ID (vacancy ID)
+    if 'entity_id' in df.columns:
+        filters['entity_id'] = st.multiselect(
+            "Entity ID",
+            sorted(df['entity_id'].dropna().astype(str).unique()),
+            key=f'{key_prefix}_entity_id',
+            placeholder="Search and select vacancy IDs"
+        )
+
     # Apply button
     apply_clicked = st.button(
         "Apply Filters",
@@ -308,6 +328,11 @@ def apply_filters_to_data(df, filters):
             search_term = filters['job_title'].strip().lower()
             filtered = filtered[filtered['title'].str.lower().str.contains(search_term, na=False, regex=False)]
 
+    # Entity ID
+    if filters.get('entity_id') and 'entity_id' in filtered.columns:
+        selected_ids = set(str(x) for x in filters['entity_id'])
+        filtered = filtered[filtered['entity_id'].astype(str).isin(selected_ids)]
+
     return filtered
 
 
@@ -359,5 +384,10 @@ def apply_filters_to_region_data(region_df, filters):
         if 'title' in filtered.columns:
             search_term = filters['job_title'].strip().lower()
             filtered = filtered[filtered['title'].str.lower().str.contains(search_term, na=False, regex=False)]
+
+    # Entity ID
+    if filters.get('entity_id') and 'entity_id' in filtered.columns:
+        selected_ids = set(str(x) for x in filters['entity_id'])
+        filtered = filtered[filtered['entity_id'].astype(str).isin(selected_ids)]
 
     return filtered

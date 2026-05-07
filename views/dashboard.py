@@ -112,13 +112,35 @@ def render_dashboard(df, daily_totals=None, region_df=None):
         if st.session_state.get('global_filters'):
             f = st.session_state.global_filters
             if any([f.get('importer'), f.get('company'), f.get('region'),
-                    f.get('occupation'), f.get('upgrades'), f.get('job_title')]):
+                    f.get('occupation'), f.get('upgrades'), f.get('job_title'),
+                    f.get('entity_id')]):
                 has_active_filters = True
 
         if has_active_filters:
             st.caption("Trend data shows global site performance (not affected by filters).")
 
-        daily_data = daily_totals.copy().sort_values('event_date')
+        trend_granularity = st.selectbox(
+            "View by", ["Daily", "Weekly", "Monthly"], key='trend_granularity'
+        )
+
+        daily_data = daily_totals.copy()
+        daily_data['event_date'] = pd.to_datetime(daily_data['event_date'])
+        daily_data = daily_data.sort_values('event_date')
+
+        if trend_granularity == 'Weekly':
+            daily_data['period'] = daily_data['event_date'].dt.to_period('W').apply(lambda p: p.start_time)
+            daily_data = daily_data.groupby('period', as_index=False).agg(
+                clicks=('clicks', 'sum'),
+                applies=('applies', 'sum'),
+            ).rename(columns={'period': 'event_date'})
+        elif trend_granularity == 'Monthly':
+            daily_data['period'] = daily_data['event_date'].dt.to_period('M').apply(lambda p: p.start_time)
+            daily_data = daily_data.groupby('period', as_index=False).agg(
+                clicks=('clicks', 'sum'),
+                applies=('applies', 'sum'),
+            ).rename(columns={'period': 'event_date'})
+
+        daily_data = daily_data.sort_values('event_date')
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(

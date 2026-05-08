@@ -112,3 +112,7 @@ session_handoff.md
 # Linked git worktrees (created by `git worktree add`)
 /hopeful-wing-721453/
 /keen-engelbart/
+
+# Local workspace folders for triaging working files
+/outputs/
+/to_delete/

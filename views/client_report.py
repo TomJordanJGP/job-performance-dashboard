@@ -1067,45 +1067,40 @@ def render_client_report(df, media_df=None):
 
     by_type = by_type[by_type['jobs_posted'] >= 1]
 
-    chart_col3, commentary_col3 = st.columns([3, 2])
+    fig_postings = go.Figure()
+    fig_postings.add_trace(go.Bar(
+        y=by_type['occupation'], x=by_type['jobs_posted'],
+        name='Postings', orientation='h',
+        marker_color=JGP_COLORS['primary'],
+        text=by_type['jobs_posted'], textposition='outside'
+    ))
+    fig_postings.add_trace(go.Bar(
+        y=by_type['occupation'], x=by_type['apply_clicks'],
+        name='Applies', orientation='h',
+        marker_color=JGP_COLORS['accent'],
+        text=by_type['apply_clicks'].astype(int), textposition='outside',
+        textfont=dict(color=JGP_COLORS['deep_blue']),
+    ))
+    fig_postings.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+    fig_postings.update_layout(
+        barmode='group', height=max(400, len(by_type) * 40),
+        legend=dict(orientation='h', y=-0.1),
+        xaxis_title="Count", yaxis_title="",
+        bargap=0.1, bargroupgap=0.0,
+    )
+    st.plotly_chart(fig_postings, use_container_width=True)
+    st.caption(chart_caption('postings_by_type', slot_dims))
+    report_figures['postings'] = fig_postings
 
-    with chart_col3:
-        fig_postings = go.Figure()
-        fig_postings.add_trace(go.Bar(
-            y=by_type['occupation'], x=by_type['jobs_posted'],
-            name='Jobs Posted', orientation='h',
-            marker_color=JGP_COLORS['primary'],
-            text=by_type['jobs_posted'], textposition='outside'
-        ))
-        fig_postings.add_trace(go.Bar(
-            y=by_type['occupation'], x=by_type['apply_clicks'],
-            name='Apply Clicks', orientation='h',
-            marker_color=JGP_COLORS['accent'],
-            text=by_type['apply_clicks'].astype(int), textposition='outside',
-            textfont=dict(color=JGP_COLORS['deep_blue']),
-        ))
-        fig_postings.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-        fig_postings.update_layout(
-            barmode='group', height=max(400, len(by_type) * 40),
-            legend=dict(orientation='h', y=-0.1),
-            xaxis_title="Count", yaxis_title="",
-            plot_bgcolor='rgba(0,0,0,0)',
-            bargap=0.1, bargroupgap=0.0,
-        )
-        st.plotly_chart(fig_postings, use_container_width=True)
-        st.caption(chart_caption('postings_by_type', slot_dims))
-        report_figures['postings'] = fig_postings
-
-    with commentary_col3:
-        total_jobs = len(client_df)
-        total_applies_val = int(client_df['applies'].sum())
-        postings_commentary = generate_section_commentary('postings', {
-            'total_jobs': total_jobs,
-            'total_applies': total_applies_val,
-            'by_type': by_type,
-            'client_name': selected_client,
-        })
-        st.markdown(postings_commentary)
+    total_jobs = len(client_df)
+    total_applies_val = int(client_df['applies'].sum())
+    postings_commentary = generate_section_commentary('postings', {
+        'total_jobs': total_jobs,
+        'total_applies': total_applies_val,
+        'by_type': by_type,
+        'client_name': selected_client,
+    })
+    st.markdown(commentary_panel(postings_commentary), unsafe_allow_html=True)
 
     # ===================================================================
     # SECTION 05: ADVERTISING ROI (existing; CPA split out in section 06 later)

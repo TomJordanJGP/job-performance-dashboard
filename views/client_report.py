@@ -18,6 +18,13 @@ from plotly.subplots import make_subplots
 from pptx import Presentation
 
 from theme.colors import JGP_COLORS, JGP_PLOTLY_TEMPLATE
+from theme.components import (
+    client_hero,
+    client_toc,
+    section_anchor,
+    section_eyebrow,
+    summary_bar,
+)
 from data.processing import apply_media_categories
 from data.loader import load_client_hq_regions
 
@@ -576,82 +583,118 @@ def generate_section_commentary_structured(section, data):
 
 def render_client_report(df, media_df=None):
     """Render the Client Report tab — branded PPTX advertising report for renewals."""
-    st.header("Client Advertising Report")
 
     # PPTX placeholder geometry — surfaced in each chart caption so the user can
     # reason about text sizing against the actual rendered slot. Cached for an
     # hour; only re-reads `Renewals.pptx` if it changes.
     slot_dims = get_chart_slot_dimensions()
 
-    # --- Controls ---
-    col_client, col_dates = st.columns(2)
-    with col_client:
-        # Client selector — uses organization_name (the actual client/employer)
-        org_col = 'organization_name' if 'organization_name' in df.columns else 'importer_name'
-        orgs = sorted(df[org_col].dropna().unique())
-        # Filter out blanks and unknowns
-        orgs = [o for o in orgs if o and str(o).strip() not in ('', 'Unknown', 'nan')]
-        org_counts = df.groupby(org_col).size().to_dict()
-        org_labels = [f"{name} ({org_counts.get(name, 0):,} vacancies)" for name in orgs]
-        selected_idx = st.selectbox(
-            "Select Client / Organisation", range(len(orgs)),
-            format_func=lambda i: org_labels[i],
-            key='report_client'
-        )
-        selected_client = orgs[selected_idx]
-    with col_dates:
-        min_date = df['first_event_date'].dropna().min()
-        max_date = df['last_event_date'].dropna().max()
-        if pd.notna(min_date) and pd.notna(max_date):
-            min_d = min_date.date() if hasattr(min_date, 'date') else min_date
-            max_d = max_date.date() if hasattr(max_date, 'date') else max_date
-        else:
-            min_d = datetime.now().date() - timedelta(days=365)
-            max_d = datetime.now().date()
-        report_dates = st.date_input("Report Period", [min_d, max_d], key='report_dates')
+    # Determine the org column up-front; both the form and the renderer need it.
+    org_col = 'organization_name' if 'organization_name' in df.columns else 'importer_name'
 
-    with st.expander("Cost & Report Settings", expanded=False):
-        cost_col1, cost_col2 = st.columns(2)
-        with cost_col1:
-            annual_spend = st.number_input(
-                "Annual Spend (GBP)", value=0.0, step=100.0, format="%.2f",
-                key='report_spend',
-                help="Enter 0 to skip the ROI section"
+    # --- Settings state machine: form (open) <-> summary bar (collapsed) ---
+    state = st.session_state
+    state.setdefault('report_settings_collapsed', False)
+    state.setdefault('report_generated', False)
+
+    if not state['report_settings_collapsed']:
+        # Settings form (replaces the original controls block)
+        st.markdown('<h2 class="client-h2">Client advertising report</h2>', unsafe_allow_html=True)
+        st.caption(
+            "Pick a client and reporting period, then generate a branded report you can share or export."
+        )
+
+        col_client, col_dates = st.columns(2)
+        with col_client:
+            orgs = sorted(df[org_col].dropna().unique())
+            orgs = [o for o in orgs if o and str(o).strip() not in ('', 'Unknown', 'nan')]
+            org_counts = df.groupby(org_col).size().to_dict()
+            st.selectbox(
+                "Select client",
+                orgs,
+                format_func=lambda name: f"{name} ({org_counts.get(name, 0):,} vacancies)",
+                key='report_client_name',
             )
-        with cost_col2:
-            rate_card_price = st.number_input(
-                "Rate Card Price per Job (GBP)", value=600.0, step=10.0, format="%.2f",
-                key='report_rate_card'
-            )
-        settings_col1, settings_col2 = st.columns(2)
-        with settings_col1:
-            include_self = st.checkbox(
-                "Include self in benchmark",
+        with col_dates:
+            min_date = df['first_event_date'].dropna().min()
+            max_date = df['last_event_date'].dropna().max()
+            if pd.notna(min_date) and pd.notna(max_date):
+                min_d = min_date.date() if hasattr(min_date, 'date') else min_date
+                max_d = max_date.date() if hasattr(max_date, 'date') else max_date
+            else:
+                min_d = datetime.now().date() - timedelta(days=365)
+                max_d = datetime.now().date()
+            st.date_input("Report period", [min_d, max_d], key='report_dates')
+
+        with st.expander("Cost & contact details", expanded=False):
+            cost_col1, cost_col2 = st.columns(2)
+            with cost_col1:
+                st.number_input(
+                    "Annual spend (GBP)", value=0.0, step=100.0, format="%.2f",
+                    key='report_spend',
+                    help="Enter 0 to skip the ROI section",
+                )
+            with cost_col2:
+                st.number_input(
+                    "Rate card price per job (GBP)", value=600.0, step=10.0, format="%.2f",
+                    key='report_rate_card',
+                )
+            st.checkbox(
+                "Include selected client in benchmark",
                 value=False,
                 key='report_include_self',
-                help="When unchecked, the selected client is excluded from the benchmark average (recommended for fair comparison)"
+                help="When unchecked, the selected client is excluded from the benchmark average (recommended for fair comparison)",
             )
-        with settings_col2:
-            st.markdown("**Contact details** (for PDF)")
-            contact_name = st.text_input("Account Manager", key='report_contact_name', placeholder="e.g. Jane Smith")
-            contact_title = st.text_input("Title", key='report_contact_title', placeholder="e.g. Account Director")
-            contact_email = st.text_input("Email", key='report_contact_email', placeholder="e.g. jane@jgp.co.uk")
-            contact_phone = st.text_input("Phone", key='report_contact_phone', placeholder="e.g. 020 7946 0958")
+            st.markdown("**Contact details** — used in the hero band and the export deck")
+            st.text_input("Account manager", key='report_contact_name', placeholder="e.g. Jane Smith")
+            st.text_input("Title", key='report_contact_title', placeholder="e.g. Account Director")
+            st.text_input("Email", key='report_contact_email', placeholder="e.g. jane@jgp.co.uk")
+            st.text_input("Phone", key='report_contact_phone', placeholder="e.g. 020 7946 0958")
 
-    generate_clicked = st.button("Generate Report", type="primary", key='report_generate')
+        if st.button("Generate report", type="primary", key='report_generate'):
+            state['report_settings_collapsed'] = True
+            state['report_generated'] = True
+            st.rerun()
 
-    if not generate_clicked and 'report_generated' not in st.session_state:
-        st.info("Select a client and click **Generate Report** to build the advertising report.")
+    if not state['report_generated']:
+        st.info("Pick a client and click **Generate report** to build the advertising report.")
         return
 
-    st.session_state['report_generated'] = True
+    # --- Read form values from session state (persisted via widget keys) ---
+    selected_client = state.get('report_client_name')
+    if not selected_client:
+        st.warning("No client selected. Open settings and pick one.")
+        return
+    report_dates = state.get('report_dates', [])
+    annual_spend = float(state.get('report_spend', 0.0) or 0.0)
+    rate_card_price = float(state.get('report_rate_card', 600.0) or 0.0)
+    include_self = bool(state.get('report_include_self', False))
+    contact_name = state.get('report_contact_name', '') or ''
+    contact_title = state.get('report_contact_title', '') or ''
+    contact_email = state.get('report_contact_email', '') or ''
+    contact_phone = state.get('report_contact_phone', '') or ''
 
-    # --- Data preparation ---
-    if len(report_dates) < 2:
-        st.warning("Please select a start and end date.")
+    if not report_dates or len(report_dates) < 2:
+        st.warning("Please select a start and end date in settings.")
         return
 
     report_start, report_end = report_dates[0], report_dates[1]
+    period_str = f"{report_start.strftime('%d %b %Y')} – {report_end.strftime('%d %b %Y')}"
+
+    # --- Summary bar (collapsed-settings state) ---
+    if state['report_settings_collapsed']:
+        col_summary, col_edit = st.columns([6, 1])
+        with col_summary:
+            st.markdown(
+                summary_bar(selected_client, period_str, am_name=contact_name),
+                unsafe_allow_html=True,
+            )
+        with col_edit:
+            if st.button("Edit", key='report_edit'):
+                state['report_settings_collapsed'] = False
+                st.rerun()
+
+    # --- Data preparation ---
 
     # Client data — filter on organization_name (or importer_name fallback)
     client_df = df[df[org_col] == selected_client].copy()
@@ -688,15 +731,40 @@ def render_client_report(df, media_df=None):
         else:
             client_media = apply_media_categories(client_media)
 
+    # --- Hero band ---
+    lede = (
+        f"How {selected_client}'s vacancy advertising performed against the wider market "
+        "during the reporting period — applies, costs, ROI, salaries, and channels."
+    )
+    st.markdown(
+        client_hero(selected_client, period_str, lede, len(client_df), am_name=contact_name),
+        unsafe_allow_html=True,
+    )
+
+    # --- In-page TOC (inline above the sections; sticky two-column layout to follow) ---
+    toc_items = [
+        ('01', 'headlines',  'Headline numbers'),
+        ('02', 'scatter',    'Per-vacancy benchmarking'),
+        ('03', 'benchmark',  'Performance vs market'),
+        ('04', 'postings',   'Postings & apply volume'),
+        ('05', 'roi',        'Advertising ROI'),
+        ('06', 'cpa',        'Cost per apply'),
+        ('07', 'salary',     'Salary benchmarks'),
+        ('08', 'channels',   'Channel performance'),
+        ('09', 'export',     'Export'),
+    ]
+    st.markdown(client_toc(toc_items), unsafe_allow_html=True)
+
     # Store all figures for PDF export
     report_figures = {}
 
-    st.markdown("---")
-
     # ===================================================================
-    # SECTION 1: BENCHMARKING SCATTER
+    # SECTION 02: PER-VACANCY BENCHMARKING (existing scatter)
     # ===================================================================
-    st.subheader("Benchmarking Jobs")
+    st.markdown(
+        section_anchor('scatter') + section_eyebrow('02', 'Per-vacancy benchmarking'),
+        unsafe_allow_html=True,
+    )
 
     # Calculate per-occupation benchmark averages (from ALL clients)
     occ_benchmarks = benchmark_df.groupby('occupation').agg(
@@ -840,12 +908,13 @@ def render_client_report(df, media_df=None):
         })
         st.markdown(commentary)
 
-    st.markdown("---")
-
     # ===================================================================
-    # SECTION 2: BENCHMARKING SUMMARY
+    # SECTION 03: PERFORMANCE VS MARKET (existing benchmarking summary)
     # ===================================================================
-    st.subheader("Benchmarking Summary")
+    st.markdown(
+        section_anchor('benchmark') + section_eyebrow('03', 'Performance vs market'),
+        unsafe_allow_html=True,
+    )
 
     benchmark_avg_clicks = benchmark_df['clicks'].mean() if len(benchmark_df) > 0 else 0
     benchmark_avg_applies = benchmark_df['applies'].mean() if len(benchmark_df) > 0 else 0
@@ -917,12 +986,13 @@ def render_client_report(df, media_df=None):
         })
         st.markdown(bench_commentary)
 
-    st.markdown("---")
-
     # ===================================================================
-    # SECTION 3: JOB POSTINGS BY TYPE
+    # SECTION 04: POSTINGS & APPLY VOLUME (existing job postings)
     # ===================================================================
-    st.subheader("Job Postings by Type")
+    st.markdown(
+        section_anchor('postings') + section_eyebrow('04', 'Postings & apply volume'),
+        unsafe_allow_html=True,
+    )
 
     by_type = client_df.groupby('occupation').agg(
         jobs_posted=('clicks', 'count'),
@@ -971,12 +1041,13 @@ def render_client_report(df, media_df=None):
         })
         st.markdown(postings_commentary)
 
-    st.markdown("---")
-
     # ===================================================================
-    # SECTION 4: ADVERTISING ROI
+    # SECTION 05: ADVERTISING ROI (existing; CPA split out in section 06 later)
     # ===================================================================
-    st.subheader("Advertising ROI")
+    st.markdown(
+        section_anchor('roi') + section_eyebrow('05', 'Advertising ROI'),
+        unsafe_allow_html=True,
+    )
 
     num_jobs = len(client_df)
     total_clicks = int(client_df['clicks'].sum())
@@ -1074,16 +1145,17 @@ def render_client_report(df, media_df=None):
         st.metric("Jobs Advertised", f"{num_jobs:,}")
         st.info("Enter your **Annual Spend** and **Rate Card Price** in the Cost & Report Settings above to see ROI analysis.")
 
-    st.markdown("---")
-
     # ===================================================================
-    # SECTION 4.5: SALARY BENCHMARK BY TOP-10 OCCUPATIONS
+    # SECTION 07: SALARY BENCHMARKS (existing top-10 occupations)
     # ===================================================================
     # For each of the client's most-posted-with-salary roles, show the
     # market salary distribution as a histogram and overlay three reference
     # means: client, national, regional (client's HQ region). Mirrors the
     # salary-tab histogram pattern (views/salary.py:185-239) per occupation.
-    st.subheader("Salary Benchmark — Your Top 10 Occupations")
+    st.markdown(
+        section_anchor('salary') + section_eyebrow('07', 'Salary benchmarks'),
+        unsafe_allow_html=True,
+    )
 
     # Persistent across the conditional branches so the commentary generator
     # downstream can pick them up (None when section is skipped).
@@ -1276,12 +1348,13 @@ def render_client_report(df, media_df=None):
             salary_per_occ = per_occ
             salary_client_region = client_region
 
-    st.markdown("---")
-
     # ===================================================================
-    # SECTION 5: MEDIA PERFORMANCE
+    # SECTION 08: CHANNEL PERFORMANCE (existing media performance)
     # ===================================================================
-    st.subheader(f"Media Performance — {selected_client}")
+    st.markdown(
+        section_anchor('channels') + section_eyebrow('08', 'Channel performance'),
+        unsafe_allow_html=True,
+    )
 
     cat_stats = None  # Initialise before conditional block so it's in scope for PDF commentary
     if client_media is not None and len(client_media) > 0:
@@ -1358,12 +1431,13 @@ def render_client_report(df, media_df=None):
     else:
         st.info("Media source data not available. Run the `dashboard_media_summary` BigQuery table creation to enable this section.")
 
-    st.markdown("---")
-
     # ===================================================================
-    # POWERPOINT EXPORT
+    # SECTION 09: EXPORT (PowerPoint download)
     # ===================================================================
-    st.subheader("Export Report")
+    st.markdown(
+        section_anchor('export') + section_eyebrow('09', 'Export'),
+        unsafe_allow_html=True,
+    )
 
     # --- Compute additional stats needed for PPTX template ---
 

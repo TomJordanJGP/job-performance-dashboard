@@ -659,12 +659,13 @@ def _build_css() -> str:
         margin: 0 0 16px 0;
     }}
 
-    /* Anchor offsets so links don't slide under the app bar / tabs */
+    /* Anchor target — invisible, contributes 48 px section spacing via margin */
     .client-anchor {{
         display: block;
-        position: relative;
-        top: -88px;
+        height: 0;
+        overflow: hidden;
         visibility: hidden;
+        margin-top: 48px;
     }}
 
     /* Dark KPI card variant — one of the four headline cards is filled */

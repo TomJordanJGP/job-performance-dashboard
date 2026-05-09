@@ -8,7 +8,7 @@ keyboard-access requirements.
 
 import streamlit as st
 
-from theme.colors import JGP_COLORS, HOVER_PRIMARY
+from theme.colors import JGP_COLORS
 
 
 def _build_css() -> str:
@@ -21,7 +21,7 @@ def _build_css() -> str:
     /* ==========================================
        FONTS — DM Sans (brand) with weights 400/500/600/700
        ========================================== */
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
 
     html, body, [class*="css"] {{
         font-family: 'DM Sans', sans-serif !important;
@@ -79,20 +79,22 @@ def _build_css() -> str:
         color: {c['deep_blue']} !important;
     }}
 
-    /* Sidebar primary button */
+    /* Sidebar primary button — brand-kit pill: bold green on deep blue */
     [data-testid="stSidebar"] .stButton > button[kind="primary"] {{
-        background-color: {c['primary']};
+        background-color: {c['accent']};
         border: none;
-        color: {c['white']};
+        color: {c['deep_blue']};
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;
-        border-radius: 6px;
-        padding: 0.5rem 1rem;
+        font-size: 15px;
+        min-height: 44px;
+        padding: 12px 22px;
+        border-radius: 999px;
         transition: background-color 200ms ease;
     }}
 
     [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {{
-        background-color: {HOVER_PRIMARY};
+        background-color: {c['light_green']};
     }}
 
     /* Sidebar refresh / secondary button */
@@ -140,14 +142,12 @@ def _build_css() -> str:
         margin: 4px 0 0 0;
     }}
 
-    /* Sidebar section labels (e.g. "Filters") — replaces inline-styled markdown */
+    /* Sidebar section labels (e.g. "Filters") — sentence case per brand kit */
     .jgp-sidebar-section {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;
         font-size: 14px;
         color: {c['supporting']};
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
         margin-bottom: 8px;
     }}
 
@@ -199,11 +199,9 @@ def _build_css() -> str:
 
     .kpi-label {{
         font-family: 'DM Sans', sans-serif;
-        font-weight: 500;
-        font-size: 12px;
+        font-weight: 600;
+        font-size: 13px;
         color: {c['primary']};
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
         margin-bottom: 4px;
     }}
 
@@ -418,19 +416,22 @@ def _build_css() -> str:
        GENERAL OVERRIDES
        ========================================== */
 
-    /* Primary button */
+    /* Primary button — brand-kit pill: bold green bg, deep blue text, 999 px radius */
     .stButton > button[kind="primary"] {{
-        background-color: {c['primary']};
+        background-color: {c['accent']};
         border: none;
-        color: {c['white']};
+        color: {c['deep_blue']};
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;
-        border-radius: 6px;
+        font-size: 15px;
+        min-height: 44px;
+        padding: 12px 22px;
+        border-radius: 999px;
         transition: background-color 200ms ease;
     }}
 
     .stButton > button[kind="primary"]:hover {{
-        background-color: {HOVER_PRIMARY};
+        background-color: {c['light_green']};
     }}
 
     /* Streamlit metric (default st.metric) */
@@ -443,11 +444,9 @@ def _build_css() -> str:
 
     [data-testid="stMetric"] label {{
         font-family: 'DM Sans', sans-serif;
-        font-weight: 500;
-        font-size: 12px;
+        font-weight: 600;
+        font-size: 13px;
         color: {c['primary']} !important;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
     }}
 
     [data-testid="stMetric"] [data-testid="stMetricValue"] {{
@@ -485,6 +484,416 @@ def _build_css() -> str:
         color: {c['white']} !important;
         font-family: 'DM Sans', sans-serif;
         font-weight: 500;
+    }}
+
+    /* ==========================================
+       CLIENT REPORT — settings → hero → 9-section layout
+       Scoped via .client-* classes so other tabs are unaffected.
+       ========================================== */
+
+    /* Settings summary bar (collapsed state) */
+    .client-summary-bar {{
+        background: {c['surface_warm']};
+        border: 1px solid {c['border']};
+        border-radius: 8px;
+        padding: 16px 20px;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+    }}
+
+    .client-summary-bar .summary-meta {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+        font-family: 'DM Sans', sans-serif;
+        color: {c['text_secondary']};
+        font-size: 14px;
+    }}
+
+    .client-summary-bar .summary-meta strong {{
+        color: {c['deep_blue']};
+        font-weight: 600;
+        margin-right: 4px;
+    }}
+
+    /* Hero band */
+    .client-hero {{
+        background: {c['light_purple']};
+        border-radius: 8px;
+        padding: 32px 36px;
+        margin: 8px 0 24px 0;
+    }}
+
+    .client-hero .hero-eyebrow {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 600;
+        font-size: 13px;
+        color: {c['primary']};
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }}
+
+    .client-hero .hero-eyebrow::before {{
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: {c['primary']};
+        display: inline-block;
+    }}
+
+    .client-hero h1 {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 700;
+        font-size: 40px;
+        line-height: 1.1;
+        color: {c['deep_blue']};
+        margin: 0 0 12px 0;
+    }}
+
+    .client-hero .hero-lede {{
+        font-family: 'DM Sans', sans-serif;
+        font-size: 16px;
+        line-height: 1.55;
+        color: {c['text_secondary']};
+        margin: 0 0 24px 0;
+        max-width: 720px;
+    }}
+
+    .client-hero-meta {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 24px;
+        border-top: 1px solid {c['border']};
+        padding-top: 20px;
+        margin: 0;
+    }}
+
+    .client-hero-meta dt {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 600;
+        font-size: 13px;
+        color: {c['primary']};
+        margin-bottom: 4px;
+    }}
+
+    .client-hero-meta dd {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 500;
+        font-size: 16px;
+        color: {c['deep_blue']};
+        margin: 0;
+    }}
+
+    /* Sticky in-page TOC */
+    .client-toc {{
+        position: sticky;
+        top: 88px;
+        background: {c['white']};
+        border: 1px solid {c['border']};
+        border-radius: 8px;
+        padding: 16px;
+        font-family: 'DM Sans', sans-serif;
+    }}
+
+    .client-toc-title {{
+        font-weight: 700;
+        font-size: 13px;
+        color: {c['primary']};
+        margin-bottom: 12px;
+    }}
+
+    .client-toc ol {{
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }}
+
+    .client-toc li {{ margin: 0; padding: 0; }}
+
+    .client-toc-link {{
+        display: block;
+        padding: 8px 12px;
+        font-size: 14px;
+        color: {c['text_secondary']};
+        text-decoration: none;
+        border-radius: 6px;
+        transition: background 150ms ease, color 150ms ease;
+    }}
+
+    .client-toc-link:hover {{
+        background: {c['surface_warm']};
+        color: {c['deep_blue']};
+    }}
+
+    .client-toc-num {{
+        display: inline-block;
+        width: 28px;
+        color: {c['primary']};
+        font-weight: 600;
+    }}
+
+    /* Section eyebrow + heading */
+    .client-eyebrow {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 600;
+        font-size: 13px;
+        color: {c['primary']};
+        margin: 0 0 8px 0;
+    }}
+
+    .client-eyebrow .num {{ margin-right: 6px; }}
+
+    .client-h2 {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 700;
+        font-size: 26px;
+        line-height: 1.2;
+        color: {c['deep_blue']};
+        margin: 0 0 16px 0;
+    }}
+
+    /* Anchor offsets so links don't slide under the app bar / tabs */
+    .client-anchor {{
+        display: block;
+        position: relative;
+        top: -88px;
+        visibility: hidden;
+    }}
+
+    /* Dark KPI card variant — one of the four headline cards is filled */
+    .kpi-card.dark {{
+        background: {c['deep_blue']};
+        border-left: 4px solid {c['accent']};
+    }}
+
+    .kpi-card.dark .kpi-label {{ color: {c['accent']}; }}
+    .kpi-card.dark .kpi-value {{ color: {c['white']}; }}
+    .kpi-card.dark .kpi-helper {{ color: {c['light_purple']}; }}
+
+    .kpi-helper {{
+        font-family: 'DM Sans', sans-serif;
+        font-size: 13px;
+        color: {c['text_muted']};
+        margin-top: 4px;
+    }}
+
+    /* 2 x 2 status grid — section 02 */
+    .status-grid {{
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        margin-top: 12px;
+    }}
+
+    .status-cell {{
+        background: {c['white']};
+        border: 1px solid {c['border']};
+        border-radius: 8px;
+        padding: 16px 18px;
+    }}
+
+    .status-cell .status-label {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 600;
+        font-size: 13px;
+        color: {c['primary']};
+        margin-bottom: 4px;
+    }}
+
+    .status-cell .status-value {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 700;
+        font-size: 24px;
+        color: {c['deep_blue']};
+        line-height: 1.2;
+    }}
+
+    .status-cell .status-help {{
+        font-family: 'DM Sans', sans-serif;
+        font-size: 13px;
+        color: {c['text_muted']};
+        margin-top: 4px;
+    }}
+
+    /* Commentary panel — beige */
+    .commentary-panel {{
+        background: {c['beige']};
+        border-radius: 8px;
+        padding: 16px 20px;
+        margin: 12px 0;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 14px;
+        line-height: 1.55;
+        color: {c['deep_blue']};
+    }}
+
+    .commentary-panel .commentary-eyebrow {{
+        font-weight: 600;
+        font-size: 13px;
+        color: {c['primary']};
+        margin-bottom: 6px;
+    }}
+
+    /* Cost-per-apply ranking lists — section 06 */
+    .cpa-ranking {{
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 12px;
+    }}
+
+    .cpa-list {{
+        background: {c['white']};
+        border: 1px solid {c['border']};
+        border-radius: 8px;
+        padding: 16px 20px;
+    }}
+
+    .cpa-list h4 {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 700;
+        font-size: 14px;
+        color: {c['deep_blue']};
+        margin: 0 0 12px 0;
+    }}
+
+    .cpa-list ol {{
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        counter-reset: cpa-rank;
+    }}
+
+    .cpa-list li {{
+        counter-increment: cpa-rank;
+        display: grid;
+        grid-template-columns: 24px 1fr auto;
+        gap: 12px;
+        padding: 8px 0;
+        border-bottom: 1px solid {c['light_purple']};
+        align-items: center;
+        font-size: 14px;
+        font-family: 'DM Sans', sans-serif;
+    }}
+
+    .cpa-list li:last-child {{ border-bottom: none; }}
+
+    .cpa-list li::before {{
+        content: counter(cpa-rank);
+        font-weight: 700;
+        color: {c['primary']};
+        font-size: 14px;
+    }}
+
+    .cpa-list .cpa-label {{ color: {c['deep_blue']}; }}
+
+    .cpa-list .cpa-value {{
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        color: {c['deep_blue']};
+    }}
+
+    /* Channel performance table — section 08 */
+    .channel-table {{
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 14px;
+        color: {c['deep_blue']};
+    }}
+
+    .channel-table th {{
+        text-align: left;
+        padding: 12px 16px;
+        background: {c['surface_warm']};
+        color: {c['primary']};
+        font-weight: 600;
+        font-size: 13px;
+        border-bottom: 1px solid {c['border']};
+    }}
+
+    .channel-table td {{
+        padding: 12px 16px;
+        border-bottom: 1px solid {c['border']};
+        vertical-align: middle;
+    }}
+
+    .channel-table tbody tr:hover td {{
+        background: {c['surface_warm']};
+    }}
+
+    .channel-bar {{
+        display: inline-block;
+        height: 10px;
+        background: {c['primary']};
+        border-radius: 5px;
+        vertical-align: middle;
+        margin-right: 8px;
+        min-width: 4px;
+    }}
+
+    .channel-bar.applies {{ background: {c['deep_green']}; }}
+
+    .channel-num {{
+        font-variant-numeric: tabular-nums;
+        color: {c['deep_blue']};
+        font-weight: 500;
+    }}
+
+    .channel-pct {{
+        font-variant-numeric: tabular-nums;
+        color: {c['primary']};
+        font-weight: 600;
+    }}
+
+    /* Export CTA panel — section 09 */
+    .export-cta {{
+        background: {c['deep_blue']};
+        border-radius: 8px;
+        padding: 32px 36px;
+        margin: 32px 0 16px 0;
+        color: {c['white']};
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 24px;
+        align-items: center;
+    }}
+
+    .export-cta .export-text h2 {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 700;
+        font-size: 22px;
+        color: {c['white']};
+        margin: 0 0 8px 0;
+    }}
+
+    .export-cta .export-text p {{
+        font-family: 'DM Sans', sans-serif;
+        font-size: 14px;
+        color: {c['light_purple']};
+        margin: 0;
+        max-width: 480px;
+    }}
+
+    .export-cta .export-logo {{
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: {c['light_purple']};
+        font-size: 12px;
+    }}
+
+    .export-cta .export-logo svg {{
+        height: 28px;
+        width: auto;
     }}
 </style>
 """

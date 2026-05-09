@@ -1119,92 +1119,148 @@ def render_client_report(df, media_df=None):
         cost_per_job = annual_spend / num_jobs if num_jobs > 0 else 0
         cost_per_view = annual_spend / total_clicks if total_clicks > 0 else 0
         cost_per_apply = annual_spend / total_applies_val if total_applies_val > 0 else 0
+        rate_card_total = rate_card_price * num_jobs
+        saving_pct = ((rate_card_total - annual_spend) / rate_card_total * 100) if rate_card_total > 0 else 0
+        saving_amount = max(0, rate_card_total - annual_spend)
 
+        # Four KPIs — one filled deep-blue (the headline saving)
         roi_kpi1, roi_kpi2, roi_kpi3, roi_kpi4 = st.columns(4)
         with roi_kpi1:
-            st.metric("Jobs Advertised", f"{num_jobs:,}")
-        with roi_kpi2:
-            st.metric("Cost per Job", f"£{cost_per_job:,.2f}")
-        with roi_kpi3:
-            st.metric("Cost per View", f"£{cost_per_view:,.2f}")
-        with roi_kpi4:
-            st.metric("Cost per Apply", f"£{cost_per_apply:,.2f}")
-
-        roi_chart_col, roi_commentary_col = st.columns([3, 2])
-
-        with roi_chart_col:
-            rate_card_total = rate_card_price * num_jobs
-            saving_pct = ((rate_card_total - annual_spend) / rate_card_total * 100) if rate_card_total > 0 else 0
-
-            fig_roi = go.Figure()
-            fig_roi.add_trace(go.Bar(
-                x=['Your Spend'], y=[annual_spend],
-                name='Your Spend', marker_color=JGP_COLORS['primary'],
-                text=[f"£{annual_spend:,.0f}"], textposition='outside',
-                textfont=dict(color=JGP_COLORS['deep_blue']),
-            ))
-            fig_roi.add_trace(go.Bar(
-                x=['Rate Card Value'], y=[rate_card_total],
-                name='Rate Card Value', marker_color=JGP_COLORS['deep_blue'],
-                text=[f"£{rate_card_total:,.0f}"], textposition='outside',
-                textfont=dict(color=JGP_COLORS['deep_blue']),
-            ))
-            fig_roi.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-            fig_roi.update_layout(
-                title=f"Cost vs Rate Card (Saving: {saving_pct:.0f}%)",
-                height=350, showlegend=True, yaxis_title="GBP",
-                plot_bgcolor='rgba(0,0,0,0)',
+            st.markdown(
+                kpi_card("Annual spend", f"£{annual_spend:,.0f}",
+                         helper="As entered in settings"),
+                unsafe_allow_html=True,
             )
-            st.plotly_chart(fig_roi, use_container_width=True)
-            st.caption(chart_caption('spend_vs_ratecard', slot_dims))
-            report_figures['roi_cost'] = fig_roi
+        with roi_kpi2:
+            st.markdown(
+                kpi_card("Rate card equivalent", f"£{rate_card_total:,.0f}",
+                         helper=f"£{rate_card_price:,.0f} list × {num_jobs:,} ads"),
+                unsafe_allow_html=True,
+            )
+        with roi_kpi3:
+            st.markdown(
+                kpi_card_dark("Saving vs rate card", f"£{saving_amount:,.0f}",
+                              helper=f"{saving_pct:.0f}% under list"),
+                unsafe_allow_html=True,
+            )
+        with roi_kpi4:
+            st.markdown(
+                kpi_card("Cost per view", f"£{cost_per_view:,.2f}",
+                         helper="Annual spend ÷ total views"),
+                unsafe_allow_html=True,
+            )
 
-            # Cost per apply by type chart
-            roi_by_type = client_df.groupby('occupation').agg(
-                total_applies=('applies', 'sum'),
-                job_count=('clicks', 'count')
-            ).reset_index()
-            roi_by_type = roi_by_type[roi_by_type['total_applies'] > 0]
-            roi_by_type['cost_allocated'] = annual_spend * (roi_by_type['job_count'] / roi_by_type['job_count'].sum())
-            roi_by_type['cost_per_apply'] = roi_by_type['cost_allocated'] / roi_by_type['total_applies']
-            roi_by_type = roi_by_type.sort_values('cost_per_apply', ascending=True)
+        # Saving bar — your spend stacked with the saving (green) makes
+        # the rate-card equivalent the full bar.
+        fig_roi = go.Figure()
+        fig_roi.add_trace(go.Bar(
+            y=['Cost'], x=[annual_spend],
+            name='Your spend',
+            orientation='h',
+            marker_color=JGP_COLORS['primary'],
+            text=[f"£{annual_spend:,.0f}"], textposition='inside',
+            textfont=dict(color=JGP_COLORS['white']),
+        ))
+        fig_roi.add_trace(go.Bar(
+            y=['Cost'], x=[saving_amount],
+            name=f'Saving ({saving_pct:.0f}%)',
+            orientation='h',
+            marker_color=JGP_COLORS['accent'],
+            text=[f"£{saving_amount:,.0f}"], textposition='inside',
+            textfont=dict(color=JGP_COLORS['deep_blue']),
+        ))
+        fig_roi.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+        fig_roi.update_layout(
+            barmode='stack',
+            height=180,
+            showlegend=True,
+            legend=dict(orientation='h', y=-0.4),
+            xaxis_title="GBP",
+            yaxis_title="",
+            margin=dict(t=20, b=40, l=40, r=20),
+        )
+        st.plotly_chart(fig_roi, use_container_width=True)
+        st.caption(chart_caption('spend_vs_ratecard', slot_dims))
+        report_figures['roi_cost'] = fig_roi
 
-            if len(roi_by_type) > 0:
-                fig_cpa = go.Figure()
-                fig_cpa.add_trace(go.Bar(
-                    y=roi_by_type['occupation'], x=roi_by_type['cost_per_apply'],
-                    orientation='h', marker_color=JGP_COLORS['blue'],
-                    text=roi_by_type['cost_per_apply'].apply(lambda x: f"£{x:,.2f}"),
-                    textposition='outside'
-                ))
-                fig_cpa.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-                fig_cpa.update_layout(
-                    title="Cost per Apply by Job Type",
-                    height=max(300, len(roi_by_type) * 35),
-                    xaxis_title="Cost per Apply (GBP)", yaxis_title="",
-                    plot_bgcolor='rgba(0,0,0,0)',
-                )
-                st.plotly_chart(fig_cpa, use_container_width=True)
-                st.caption(chart_caption('cost_per_app_by_occupation', slot_dims))
-                report_figures['roi_cpa'] = fig_cpa
+        # Cost-per-apply by type — used in section 06 below + commentary
+        roi_by_type = client_df.groupby('occupation').agg(
+            total_applies=('applies', 'sum'),
+            job_count=('clicks', 'count')
+        ).reset_index()
+        roi_by_type = roi_by_type[roi_by_type['total_applies'] > 0]
+        roi_by_type['cost_allocated'] = annual_spend * (roi_by_type['job_count'] / roi_by_type['job_count'].sum())
+        roi_by_type['cost_per_apply'] = roi_by_type['cost_allocated'] / roi_by_type['total_applies']
+        roi_by_type = roi_by_type.sort_values('cost_per_apply', ascending=True)
 
-        with roi_commentary_col:
-            roi_commentary = generate_section_commentary('roi', {
-                'annual_spend': annual_spend,
-                'rate_card_price': rate_card_price,
-                'num_jobs': num_jobs,
-                'total_clicks': total_clicks,
-                'total_applies': total_applies_val,
-                'cost_per_job': cost_per_job,
-                'cost_per_view': cost_per_view,
-                'cost_per_apply': cost_per_apply,
-                'saving_pct': saving_pct,
-                'roi_by_type': roi_by_type if len(roi_by_type) > 0 else None,
-            })
-            st.markdown(roi_commentary)
+        roi_commentary = generate_section_commentary('roi', {
+            'annual_spend': annual_spend,
+            'rate_card_price': rate_card_price,
+            'num_jobs': num_jobs,
+            'total_clicks': total_clicks,
+            'total_applies': total_applies_val,
+            'cost_per_job': cost_per_job,
+            'cost_per_view': cost_per_view,
+            'cost_per_apply': cost_per_apply,
+            'saving_pct': saving_pct,
+            'roi_by_type': roi_by_type if len(roi_by_type) > 0 else None,
+        })
+        st.markdown(commentary_panel(roi_commentary), unsafe_allow_html=True)
     else:
-        st.metric("Jobs Advertised", f"{num_jobs:,}")
-        st.info("Enter your **Annual Spend** and **Rate Card Price** in the Cost & Report Settings above to see ROI analysis.")
+        st.markdown(
+            kpi_card_dark("Vacancies advertised", f"{num_jobs:,}",
+                          helper="Set annual spend in settings to see ROI analysis"),
+            unsafe_allow_html=True,
+        )
+
+    # ===================================================================
+    # SECTION 06: COST PER APPLY (cheapest/priciest + collapsible breakdown)
+    # ===================================================================
+    if annual_spend > 0 and roi_by_type is not None and len(roi_by_type) > 0:
+        st.markdown(
+            section_anchor('cpa') + section_eyebrow('06', 'Cost per apply'),
+            unsafe_allow_html=True,
+        )
+
+        cheapest = roi_by_type.head(3)
+        priciest = roi_by_type.tail(3).iloc[::-1]
+
+        col_cheap, col_pricey = st.columns(2)
+        with col_cheap:
+            cheapest_html = '<div class="cpa-list"><h4>Cheapest occupations</h4><ol>'
+            for _, row in cheapest.iterrows():
+                cheapest_html += (
+                    f'<li><span class="cpa-label">{row["occupation"]}</span>'
+                    f'<span class="cpa-value">£{row["cost_per_apply"]:,.2f}</span></li>'
+                )
+            cheapest_html += '</ol></div>'
+            st.markdown(cheapest_html, unsafe_allow_html=True)
+        with col_pricey:
+            pricey_html = '<div class="cpa-list"><h4>Priciest occupations</h4><ol>'
+            for _, row in priciest.iterrows():
+                pricey_html += (
+                    f'<li><span class="cpa-label">{row["occupation"]}</span>'
+                    f'<span class="cpa-value">£{row["cost_per_apply"]:,.2f}</span></li>'
+                )
+            pricey_html += '</ol></div>'
+            st.markdown(pricey_html, unsafe_allow_html=True)
+
+        with st.expander("Full cost-per-apply breakdown", expanded=False):
+            fig_cpa = go.Figure()
+            fig_cpa.add_trace(go.Bar(
+                y=roi_by_type['occupation'], x=roi_by_type['cost_per_apply'],
+                orientation='h', marker_color=JGP_COLORS['primary'],
+                text=roi_by_type['cost_per_apply'].apply(lambda x: f"£{x:,.2f}"),
+                textposition='outside'
+            ))
+            fig_cpa.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+            fig_cpa.update_layout(
+                height=max(300, len(roi_by_type) * 35),
+                xaxis_title="Cost per apply (GBP)", yaxis_title="",
+            )
+            st.plotly_chart(fig_cpa, use_container_width=True)
+            st.caption(chart_caption('cost_per_app_by_occupation', slot_dims))
+            report_figures['roi_cpa'] = fig_cpa
 
     # ===================================================================
     # SECTION 07: SALARY BENCHMARKS (existing top-10 occupations)

@@ -22,6 +22,7 @@ from theme.components import (
     client_hero,
     client_toc,
     commentary_panel,
+    export_cta_panel,
     kpi_card,
     kpi_card_dark,
     section_anchor,
@@ -1801,18 +1802,30 @@ def render_client_report(df, media_df=None):
         'media_performance': report_figures.get('media'),
     }
 
-    # --- Generate PPTX and offer download ---
+    # --- Export CTA panel + download button ---
+    st.markdown(
+        export_cta_panel(
+            heading="Export this report",
+            lede=(
+                f"Download a branded PowerPoint version of the {selected_client} "
+                "report to share with the client or drop into a renewals deck. "
+                "All charts, KPIs and commentary are included; tweak any text in "
+                "PowerPoint, then File → Export → PDF for the final copy."
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
+
     template_path = 'Renewals.pptx'
     try:
         pptx_bytes = generate_client_report_pptx(report_metrics, pptx_figures, template_path)
         st.download_button(
-            "Download PowerPoint Report",
+            "Download PowerPoint report",
             data=pptx_bytes,
             file_name=f"advertising_report_{selected_client.replace(' ', '_')}_{report_start}_{report_end}.pptx",
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             type="primary"
         )
-        st.caption("Download the PowerPoint, edit any commentary you'd like, then File → Export → PDF for the final client copy.")
     except FileNotFoundError:
         st.error(f"Template file not found at `{template_path}`. Make sure `Renewals.pptx` is in the project root.")
     except Exception as e:

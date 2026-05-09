@@ -1477,7 +1477,8 @@ def render_client_report(df, media_df=None):
     cat_stats = None  # Initialise before conditional block so it's in scope for PDF commentary
     if client_media is not None and len(client_media) > 0:
         media_vac_count = client_media['entity_id_str'].nunique() if 'entity_id_str' in client_media.columns else len(client_media)
-        st.caption(f"Showing media data for **{media_vac_count:,}** vacancies belonging to {selected_client}")
+        st.caption(f"Channel data covers **{media_vac_count:,}** of this client's vacancies.")
+
         # Category-level summary
         cat_stats = client_media.groupby('source_category').agg(
             total_clicks=('clicks', 'sum'),
@@ -1489,48 +1490,69 @@ def render_client_report(df, media_df=None):
         cat_stats['conversion_rate'] = (cat_stats['total_applies'] / cat_stats['total_clicks'].replace(0, np.nan) * 100).fillna(0)
         cat_stats = cat_stats.sort_values('total_clicks', ascending=False)
 
-        media_chart_col, media_commentary_col = st.columns([3, 2])
+        # On-screen: branded HTML table with inline mini-bars per row.
+        max_views = cat_stats['avg_views'].max() or 1
+        max_applies = cat_stats['avg_applies'].max() or 1
+        BAR_BASE_PX = 140  # max bar width when value == column max
 
-        with media_chart_col:
-            fig_media = go.Figure()
-            fig_media.add_trace(go.Bar(
-                y=cat_stats['source_category'], x=cat_stats['avg_views'],
-                name='Avg. Views', orientation='h', marker_color=JGP_COLORS['primary']
-            ))
-            fig_media.add_trace(go.Bar(
-                y=cat_stats['source_category'], x=cat_stats['avg_applies'],
-                name='Avg. Applies', orientation='h', marker_color=JGP_COLORS['accent'],
-                textfont=dict(color=JGP_COLORS['deep_blue']),
-            ))
-            fig_media.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-            fig_media.update_layout(
-                barmode='group', height=max(350, len(cat_stats) * 40),
-                title="Media Performance by Channel",
-                xaxis_title="Average per Vacancy", yaxis_title="",
-                legend=dict(orientation='h', y=-0.15),
-                plot_bgcolor='rgba(0,0,0,0)',
+        rows_html = []
+        for _, row in cat_stats.iterrows():
+            views_w = max(4, int(row['avg_views'] / max_views * BAR_BASE_PX))
+            applies_w = max(4, int(row['avg_applies'] / max_applies * BAR_BASE_PX))
+            rows_html.append(
+                '<tr>'
+                f'<td>{row["source_category"]}</td>'
+                f'<td class="channel-num">{int(row["vacancy_count"]):,}</td>'
+                f'<td><span class="channel-bar" style="width:{views_w}px"></span>'
+                f'<span class="channel-num">{row["avg_views"]:,.1f}</span></td>'
+                f'<td><span class="channel-bar applies" style="width:{applies_w}px"></span>'
+                f'<span class="channel-num">{row["avg_applies"]:,.1f}</span></td>'
+                f'<td class="channel-pct">{row["conversion_rate"]:,.1f}%</td>'
+                '</tr>'
             )
-            st.plotly_chart(fig_media, use_container_width=True)
-            st.caption(chart_caption('media_performance', slot_dims))
-            report_figures['media'] = fig_media
+        table_html = (
+            '<table class="channel-table">'
+            '<thead><tr>'
+            '<th>Channel</th>'
+            '<th>Vacancies</th>'
+            '<th>Avg views</th>'
+            '<th>Avg applies</th>'
+            '<th>Conversion</th>'
+            '</tr></thead>'
+            f'<tbody>{"".join(rows_html)}</tbody>'
+            '</table>'
+        )
+        st.markdown(table_html, unsafe_allow_html=True)
+        st.caption(chart_caption('media_performance', slot_dims))
 
-            # Summary table below chart
-            display_media = cat_stats[['source_category', 'vacancy_count', 'avg_views', 'avg_applies', 'conversion_rate']].copy()
-            display_media.columns = ['Channel', 'Vacancies', 'Avg. Views', 'Avg. Applies', 'Conversion %']
-            display_media['Avg. Views'] = display_media['Avg. Views'].round(1)
-            display_media['Avg. Applies'] = display_media['Avg. Applies'].round(1)
-            display_media['Conversion %'] = display_media['Conversion %'].round(1)
-            st.dataframe(display_media, use_container_width=True, hide_index=True)
+        # Build the bar chart silently for the PPTX export — slot in the
+        # Renewals.pptx template still expects a fig.
+        fig_media = go.Figure()
+        fig_media.add_trace(go.Bar(
+            y=cat_stats['source_category'], x=cat_stats['avg_views'],
+            name='Avg views', orientation='h', marker_color=JGP_COLORS['primary']
+        ))
+        fig_media.add_trace(go.Bar(
+            y=cat_stats['source_category'], x=cat_stats['avg_applies'],
+            name='Avg applies', orientation='h', marker_color=JGP_COLORS['accent'],
+            textfont=dict(color=JGP_COLORS['deep_blue']),
+        ))
+        fig_media.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+        fig_media.update_layout(
+            barmode='group', height=max(350, len(cat_stats) * 40),
+            xaxis_title="Average per vacancy", yaxis_title="",
+            legend=dict(orientation='h', y=-0.15),
+        )
+        report_figures['media'] = fig_media
 
-        with media_commentary_col:
-            media_commentary = generate_section_commentary('media', {
-                'cat_stats': cat_stats,
-                'client_name': selected_client,
-            })
-            st.markdown(media_commentary)
+        media_commentary = generate_section_commentary('media', {
+            'cat_stats': cat_stats,
+            'client_name': selected_client,
+        })
+        st.markdown(commentary_panel(media_commentary), unsafe_allow_html=True)
 
-        # Source-level detail (expandable)
-        with st.expander("View by individual source"):
+        # Source-level detail — kept as a Streamlit dataframe under an expander.
+        with st.expander("View by individual source", expanded=False):
             media_stats = client_media.groupby(['source_category', 'source']).agg(
                 total_clicks=('clicks', 'sum'),
                 total_applies=('applies', 'sum'),
@@ -1541,13 +1563,13 @@ def render_client_report(df, media_df=None):
             media_stats['conversion_rate'] = (media_stats['total_applies'] / media_stats['total_clicks'].replace(0, np.nan) * 100).fillna(0)
             media_stats = media_stats.sort_values('total_clicks', ascending=False)
             detail_media = media_stats[['source_category', 'source', 'vacancy_count', 'avg_views', 'avg_applies', 'conversion_rate']].copy()
-            detail_media.columns = ['Channel', 'Source', 'Vacancies', 'Avg. Views', 'Avg. Applies', 'Conversion %']
-            detail_media['Avg. Views'] = detail_media['Avg. Views'].round(1)
-            detail_media['Avg. Applies'] = detail_media['Avg. Applies'].round(1)
+            detail_media.columns = ['Channel', 'Source', 'Vacancies', 'Avg views', 'Avg applies', 'Conversion %']
+            detail_media['Avg views'] = detail_media['Avg views'].round(1)
+            detail_media['Avg applies'] = detail_media['Avg applies'].round(1)
             detail_media['Conversion %'] = detail_media['Conversion %'].round(1)
             st.dataframe(detail_media, use_container_width=True, hide_index=True)
     else:
-        st.info("Media source data not available. Run the `dashboard_media_summary` BigQuery table creation to enable this section.")
+        st.info("Channel-source data isn't available yet. Build the `dashboard_media_summary` BigQuery table to enable this section.")
 
     # ===================================================================
     # SECTION 09: EXPORT (PowerPoint download)

@@ -1316,9 +1316,10 @@ def render_client_report(df, media_df=None):
                 if len(df_regional_market) == 0:
                     df_regional_market = None  # No samples → drop regional line
 
-            client_color = JGP_COLORS['negative']      # red — your mean
-            national_color = JGP_COLORS['blue']        # blue — national mean
-            regional_color = JGP_COLORS['deep_green']  # green — regional mean
+            # Brand-kit reference lines: pink (you), bold green (national), deep blue (region)
+            client_color = JGP_COLORS['pink']        # #ffc4c4 — your mean
+            national_color = JGP_COLORS['accent']    # #e5ff6e — national mean
+            regional_color = JGP_COLORS['deep_blue'] # #240f45 — regional mean
 
             per_occ = []
             for occ in top_occupations:
@@ -1384,7 +1385,7 @@ def render_client_report(df, media_df=None):
 
                 if not pd.isna(p['client_mean']):
                     fig_salary_occ.add_vline(
-                        x=p['client_mean'], line_width=2.5, line_color=client_color,
+                        x=p['client_mean'], line_width=2, line_color=client_color,
                         row=row, col=col,
                     )
                 if not pd.isna(p['national_mean']):
@@ -1403,7 +1404,7 @@ def render_client_report(df, media_df=None):
             fig_salary_occ.add_trace(
                 go.Scatter(
                     x=[None], y=[None], mode='lines',
-                    line=dict(color=client_color, width=2.5),
+                    line=dict(color=client_color, width=2),
                     name='Your mean',
                 ),
                 row=1, col=1,

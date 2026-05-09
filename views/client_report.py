@@ -21,10 +21,12 @@ from theme.colors import JGP_COLORS, JGP_PLOTLY_TEMPLATE
 from theme.components import (
     client_hero,
     client_toc,
+    commentary_panel,
     kpi_card,
     kpi_card_dark,
     section_anchor,
     section_eyebrow,
+    status_grid,
     summary_bar,
 )
 from data.processing import apply_media_categories
@@ -884,7 +886,7 @@ def render_client_report(df, media_df=None):
         'Low Sample (No Benchmark)': 'circle',
     }
 
-    chart_col, commentary_col = st.columns([3, 2])
+    chart_col, grid_col = st.columns([3, 2])
 
     with chart_col:
         if len(scatter_df) > 0:
@@ -931,40 +933,46 @@ def render_client_report(df, media_df=None):
             st.caption(chart_caption('benchmark_scatter', slot_dims))
             report_figures['scatter'] = fig_scatter
 
-    with commentary_col:
-        benchmarkable_count = len(scatter_df[scatter_df['category'] == 'Benchmarkable'])
-        zero_redirect = len(scatter_df[scatter_df['category'] == 'Zero Applies (Possible Redirect)'])
-        zero_low = len(scatter_df[scatter_df['category'] == 'Zero Applies (Low Traffic)'])
-        no_bench_count = len(scatter_df[scatter_df['category'] == 'Low Sample (No Benchmark)'])
+    benchmarkable_count = len(scatter_df[scatter_df['category'] == 'Benchmarkable'])
+    zero_redirect = len(scatter_df[scatter_df['category'] == 'Zero Applies (Possible Redirect)'])
+    zero_low = len(scatter_df[scatter_df['category'] == 'Zero Applies (Low Traffic)'])
+    no_bench_count = len(scatter_df[scatter_df['category'] == 'Low Sample (No Benchmark)'])
 
-        kpi_c1, kpi_c2 = st.columns(2)
-        with kpi_c1:
-            st.metric("Benchmarkable", benchmarkable_count)
-            st.metric("Zero Applies (Redirect)", zero_redirect)
-        with kpi_c2:
-            st.metric("Zero Applies (Low Traffic)", zero_low)
-            st.metric("No Benchmark", no_bench_count)
+    with grid_col:
+        st.markdown(
+            status_grid([
+                {'label': 'Benchmarkable',     'value': f"{benchmarkable_count:,}",
+                 'help': 'In-period vs occupation average'},
+                {'label': 'Low traffic',       'value': f"{zero_low:,}",
+                 'help': 'Zero applies, below median views'},
+                {'label': 'Possible redirect', 'value': f"{zero_redirect:,}",
+                 'help': 'Zero applies, high views'},
+                {'label': 'No benchmark',      'value': f"{no_bench_count:,}",
+                 'help': 'Occupation lacks ≥5 market peers'},
+            ]),
+            unsafe_allow_html=True,
+        )
 
-        # Build top/worst performers for commentary
-        benchmarkable_rows = scatter_df[scatter_df['category'] == 'Benchmarkable'].copy()
-        top_performers = []
-        worst_performers = []
-        if len(benchmarkable_rows) > 0:
-            benchmarkable_rows['_score'] = benchmarkable_rows['views_diff_pct'] + benchmarkable_rows['applies_diff_pct']
-            top_sorted = benchmarkable_rows.nlargest(3, '_score')
-            top_performers = top_sorted[['title', 'occupation', 'views_diff_pct', 'applies_diff_pct']].to_dict('records')
-            worst_sorted = benchmarkable_rows.nsmallest(3, '_score')
-            worst_performers = worst_sorted[['title', 'occupation', 'views_diff_pct', 'applies_diff_pct']].to_dict('records')
+    # Commentary spans the full width below the chart + grid row
+    benchmarkable_rows = scatter_df[scatter_df['category'] == 'Benchmarkable'].copy()
+    top_performers = []
+    worst_performers = []
+    if len(benchmarkable_rows) > 0:
+        benchmarkable_rows['_score'] = benchmarkable_rows['views_diff_pct'] + benchmarkable_rows['applies_diff_pct']
+        top_sorted = benchmarkable_rows.nlargest(3, '_score')
+        top_performers = top_sorted[['title', 'occupation', 'views_diff_pct', 'applies_diff_pct']].to_dict('records')
+        worst_sorted = benchmarkable_rows.nsmallest(3, '_score')
+        worst_performers = worst_sorted[['title', 'occupation', 'views_diff_pct', 'applies_diff_pct']].to_dict('records')
 
-        commentary = generate_section_commentary('scatter', {
-            'total_count': len(scatter_df),
-            'benchmarkable_count': benchmarkable_count,
-            'zero_applies_count': zero_redirect + zero_low,
-            'no_benchmark_count': no_bench_count,
-            'top_performers': top_performers,
-            'worst_performers': worst_performers,
-        })
-        st.markdown(commentary)
+    commentary = generate_section_commentary('scatter', {
+        'total_count': len(scatter_df),
+        'benchmarkable_count': benchmarkable_count,
+        'zero_applies_count': zero_redirect + zero_low,
+        'no_benchmark_count': no_bench_count,
+        'top_performers': top_performers,
+        'worst_performers': worst_performers,
+    })
+    st.markdown(commentary_panel(commentary), unsafe_allow_html=True)
 
     # ===================================================================
     # SECTION 03: PERFORMANCE VS MARKET (existing benchmarking summary)

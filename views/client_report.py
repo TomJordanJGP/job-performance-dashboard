@@ -986,71 +986,71 @@ def render_client_report(df, media_df=None):
     benchmark_avg_applies = benchmark_df['applies'].mean() if len(benchmark_df) > 0 else 0
     client_avg_clicks = client_df['clicks'].mean() if len(client_df) > 0 else 0
     client_avg_applies = client_df['applies'].mean() if len(client_df) > 0 else 0
+    views_pct = (client_avg_clicks / benchmark_avg_clicks * 100) if benchmark_avg_clicks > 0 else 0
+    applies_pct = (client_avg_applies / benchmark_avg_applies * 100) if benchmark_avg_applies > 0 else 0
 
-    kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
-    with kpi_col1:
-        st.metric("Benchmark Avg. Views", f"{benchmark_avg_clicks:,.0f}")
-    with kpi_col2:
-        views_delta = client_avg_clicks - benchmark_avg_clicks
-        st.metric("Your Jobs - Avg. Views", f"{client_avg_clicks:,.0f}",
-                  delta=f"{views_delta:+,.0f} vs benchmark")
-    with kpi_col3:
-        st.metric("Benchmark Avg. Applies", f"{benchmark_avg_applies:,.1f}")
-    with kpi_col4:
-        applies_delta = client_avg_applies - benchmark_avg_applies
-        st.metric("Your Jobs - Avg. Applies", f"{client_avg_applies:,.1f}",
-                  delta=f"{applies_delta:+,.1f} vs benchmark")
-
-    # Bar charts (60%) + commentary (40%)
-    bench_chart_col, bench_commentary_col = st.columns([3, 2])
-
-    with bench_chart_col:
-        views_pct = (client_avg_clicks / benchmark_avg_clicks * 100) if benchmark_avg_clicks > 0 else 0
-        applies_pct = (client_avg_applies / benchmark_avg_applies * 100) if benchmark_avg_applies > 0 else 0
-
-        fig_bench = go.Figure()
-        fig_bench.add_trace(go.Bar(
-            x=['Views', 'Applies'],
-            y=[views_pct, applies_pct],
-            marker_color=[
-                JGP_COLORS['positive'] if views_pct >= 100 else JGP_COLORS['blue'],
-                JGP_COLORS['positive'] if applies_pct >= 100 else JGP_COLORS['blue'],
-            ],
-            text=[f"{views_pct:.0f}%", f"{applies_pct:.0f}%"],
-            textposition='outside',
-            textfont=dict(size=14, color=JGP_COLORS['deep_blue']),
-        ))
-        fig_bench.add_hline(
-            y=100, line_dash="dash", line_width=3, line_color=JGP_COLORS['accent'],
-            annotation_text="Benchmark (100%)",
-            annotation_position="top right",
-            annotation_bgcolor="white",
-            annotation_bordercolor=JGP_COLORS['deep_blue'],
-            annotation_borderwidth=1,
-            annotation_font=dict(color=JGP_COLORS['deep_blue'], size=14),
+    # Two compact KPI cards (replaces the previous 4-tile metric row).
+    bench_kpi1, bench_kpi2 = st.columns(2)
+    with bench_kpi1:
+        st.markdown(
+            kpi_card(
+                "Average views per vacancy",
+                f"{client_avg_clicks:,.0f}",
+                helper=f"Market benchmark {benchmark_avg_clicks:,.0f} ({views_pct:.0f}% of market)",
+            ),
+            unsafe_allow_html=True,
         )
-        fig_bench.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-        fig_bench.update_layout(
-            title="Your Performance vs Market Benchmark",
-            yaxis_title="% of Benchmark",
-            height=400, showlegend=False,
-            yaxis_range=[0, max(views_pct, applies_pct, 100) * 1.25],
-            plot_bgcolor='rgba(0,0,0,0)',
+    with bench_kpi2:
+        st.markdown(
+            kpi_card(
+                "Average applies per vacancy",
+                f"{client_avg_applies:,.1f}",
+                helper=f"Market benchmark {benchmark_avg_applies:,.1f} ({applies_pct:.0f}% of market)",
+            ),
+            unsafe_allow_html=True,
         )
-        st.plotly_chart(fig_bench, use_container_width=True)
-        st.caption(chart_caption('benchmark_average', slot_dims))
-        report_figures['benchmark_combined'] = fig_bench
 
-    with bench_commentary_col:
-        bench_commentary = generate_section_commentary('benchmark', {
-            'client_avg_clicks': client_avg_clicks,
-            'benchmark_avg_clicks': benchmark_avg_clicks,
-            'client_avg_applies': client_avg_applies,
-            'benchmark_avg_applies': benchmark_avg_applies,
-            'num_jobs': len(client_df),
-            'client_name': selected_client,
-        })
-        st.markdown(bench_commentary)
+    # Indexed bars at 100% baseline
+    fig_bench = go.Figure()
+    fig_bench.add_trace(go.Bar(
+        x=['Views', 'Applies'],
+        y=[views_pct, applies_pct],
+        marker_color=[
+            JGP_COLORS['positive'] if views_pct >= 100 else JGP_COLORS['blue'],
+            JGP_COLORS['positive'] if applies_pct >= 100 else JGP_COLORS['blue'],
+        ],
+        text=[f"{views_pct:.0f}%", f"{applies_pct:.0f}%"],
+        textposition='outside',
+        textfont=dict(size=14, color=JGP_COLORS['deep_blue']),
+    ))
+    fig_bench.add_hline(
+        y=100, line_dash="dash", line_width=3, line_color=JGP_COLORS['accent'],
+        annotation_text="Market benchmark (100%)",
+        annotation_position="top right",
+        annotation_bgcolor="white",
+        annotation_bordercolor=JGP_COLORS['deep_blue'],
+        annotation_borderwidth=1,
+        annotation_font=dict(color=JGP_COLORS['deep_blue'], size=13),
+    )
+    fig_bench.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+    fig_bench.update_layout(
+        yaxis_title="% of market benchmark",
+        height=380, showlegend=False,
+        yaxis_range=[0, max(views_pct, applies_pct, 100) * 1.25],
+    )
+    st.plotly_chart(fig_bench, use_container_width=True)
+    st.caption(chart_caption('benchmark_average', slot_dims))
+    report_figures['benchmark_combined'] = fig_bench
+
+    bench_commentary = generate_section_commentary('benchmark', {
+        'client_avg_clicks': client_avg_clicks,
+        'benchmark_avg_clicks': benchmark_avg_clicks,
+        'client_avg_applies': client_avg_applies,
+        'benchmark_avg_applies': benchmark_avg_applies,
+        'num_jobs': len(client_df),
+        'client_name': selected_client,
+    })
+    st.markdown(commentary_panel(bench_commentary), unsafe_allow_html=True)
 
     # ===================================================================
     # SECTION 04: POSTINGS & APPLY VOLUME (existing job postings)

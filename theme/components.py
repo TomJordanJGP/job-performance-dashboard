@@ -22,15 +22,16 @@ def _read_logo(token: str) -> str:
     return (_REPO_ROOT / rel).read_text()
 
 
-def kpi_card(label, value, delta=None, delta_direction="neutral", quartiles=None):
+def kpi_card(label, value, delta=None, delta_direction="neutral", quartiles=None, helper=None):
     """Build a branded KPI card as HTML string.
 
     Args:
-        label: KPI label text (e.g., "Total Vacancies").
+        label: KPI label text (e.g., "Total vacancies").
         value: Formatted value string (e.g., "33,975").
         delta: Optional delta text (e.g., "+5.2%").
         delta_direction: "positive", "negative", or "neutral".
         quartiles: Optional dict with 'top_25', 'middle_50', 'bottom_25'.
+        helper: Optional helper line below the value (e.g. methodology note).
     """
     delta_html = ""
     if delta:
@@ -57,12 +58,15 @@ def kpi_card(label, value, delta=None, delta_direction="neutral", quartiles=None
             '</div>'
         )
 
+    helper_html = f'<div class="kpi-helper">{helper}</div>' if helper else ""
+
     return (
         '<div class="kpi-card">'
         f'<div class="kpi-label">{label}</div>'
         f'<div class="kpi-value">{value}</div>'
         f'{delta_html}'
         f'{quartile_html}'
+        f'{helper_html}'
         '</div>'
     )
 

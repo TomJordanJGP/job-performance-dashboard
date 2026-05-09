@@ -21,6 +21,8 @@ from theme.colors import JGP_COLORS, JGP_PLOTLY_TEMPLATE
 from theme.components import (
     client_hero,
     client_toc,
+    kpi_card,
+    kpi_card_dark,
     section_anchor,
     section_eyebrow,
     summary_bar,
@@ -757,6 +759,62 @@ def render_client_report(df, media_df=None):
 
     # Store all figures for PDF export
     report_figures = {}
+
+    # ===================================================================
+    # SECTION 01: HEADLINE NUMBERS — 4 KPI cards, one filled deep-blue
+    # ===================================================================
+    st.markdown(
+        section_anchor('headlines') + section_eyebrow('01', 'Headline numbers'),
+        unsafe_allow_html=True,
+    )
+
+    headline_num_jobs = len(client_df)
+    headline_total_applies = int(client_df['applies'].sum())
+    headline_rate_card_total = rate_card_price * headline_num_jobs
+    headline_has_spend = annual_spend > 0
+    if headline_has_spend and headline_total_applies > 0:
+        headline_cpa = f"£{annual_spend / headline_total_applies:,.2f}"
+        headline_cpa_helper = "Annual spend ÷ total applies"
+    elif headline_has_spend:
+        headline_cpa = "—"
+        headline_cpa_helper = "No applies recorded yet"
+    else:
+        headline_cpa = "—"
+        headline_cpa_helper = "Set annual spend in settings"
+
+    h_col1, h_col2, h_col3, h_col4 = st.columns(4)
+    with h_col1:
+        st.markdown(
+            kpi_card_dark(
+                "Vacancies advertised",
+                f"{headline_num_jobs:,}",
+                helper="Across the reporting period",
+            ),
+            unsafe_allow_html=True,
+        )
+    with h_col2:
+        st.markdown(
+            kpi_card(
+                "Total applies",
+                f"{headline_total_applies:,}",
+                helper="Across all live vacancies",
+            ),
+            unsafe_allow_html=True,
+        )
+    with h_col3:
+        st.markdown(
+            kpi_card("Cost per apply", headline_cpa, helper=headline_cpa_helper),
+            unsafe_allow_html=True,
+        )
+    with h_col4:
+        st.markdown(
+            kpi_card(
+                "Rate card equivalent",
+                f"£{headline_rate_card_total:,.0f}",
+                helper=f"{headline_num_jobs:,} ads × £{rate_card_price:,.0f} list price",
+            ),
+            unsafe_allow_html=True,
+        )
 
     # ===================================================================
     # SECTION 02: PER-VACANCY BENCHMARKING (existing scatter)

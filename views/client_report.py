@@ -769,23 +769,24 @@ def render_client_report(df, media_df=None):
     )
     lede_perf = ""
     if hero_views_pct is not None and hero_applies_pct is not None:
-        if hero_views_pct >= 100 and hero_applies_pct >= 100:
-            verb = "outperformed the market"
-        elif hero_views_pct < 100 and hero_applies_pct < 100:
-            verb = "underperformed the market"
+        views_delta = hero_views_pct - 100
+        applies_delta = hero_applies_pct - 100
+        if views_delta >= 0 and applies_delta >= 0:
+            verb = "outperformed the market with"
+        elif views_delta < 0 and applies_delta < 0:
+            verb = "underperformed the market with"
         else:
-            verb = "saw mixed market performance"
+            verb = "saw mixed market performance —"
         lede_perf = (
-            f" {verb} on visibility "
-            f"(<strong>{hero_views_pct:.0f}% of benchmark views</strong>) "
-            f"and engagement "
-            f"(<strong>{hero_applies_pct:.0f}% of benchmark applies</strong>)"
+            f" {verb} "
+            f"<strong>{views_delta:+.0f}% views</strong> and "
+            f"<strong>{applies_delta:+.0f}% applies</strong>"
         )
 
     lede_cost = ""
     if annual_spend > 0 and hero_total_applies > 0:
         cpa = annual_spend / hero_total_applies
-        lede_cost = f", with a blended cost per apply of <strong>£{cpa:,.0f}</strong>"
+        lede_cost = f", with a blended cost per apply of <strong>£{cpa:,.2f}</strong>"
         if hero_rate_card_total > 0:
             saving = hero_rate_card_total - annual_spend
             if saving > 0:

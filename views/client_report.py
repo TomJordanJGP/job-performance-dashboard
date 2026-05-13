@@ -813,84 +813,65 @@ def render_client_report(df, media_df=None):
     report_figures = {}
 
     # ===================================================================
-    # SECTION 01: HEADLINE NUMBERS — bordered card, 4 KPI tiles
+    # SECTION 01: HEADLINE NUMBERS — single HTML blob inside .client-section-card
+    # so the padding matches the hero block exactly (Streamlit's container
+    # adds nested wrappers that shift the visible inset).
     # ===================================================================
-    with st.container(border=True):
-        st.markdown(
-            section_anchor('headlines')
-            + section_eyebrow('01', 'Headline numbers', short='Headlines'),
-            unsafe_allow_html=True,
+
+    # KPI 4 (Cost per apply) helper falls back gracefully when spend is 0
+    # or there are no applies yet — the value itself goes to em-dash.
+    if annual_spend > 0 and hero_total_applies > 0:
+        headline_cpa = f"£{annual_spend / hero_total_applies:,.2f}"
+        headline_cpa_helper = f"£{annual_spend:,.0f} total spend"
+    elif annual_spend > 0:
+        headline_cpa = "—"
+        headline_cpa_helper = f"£{annual_spend:,.0f} total spend, no applies yet"
+    else:
+        headline_cpa = "—"
+        headline_cpa_helper = "Set annual spend in settings"
+
+    # KPI 2 + 3 helpers carry the benchmark delta + raw benchmark mean
+    if hero_views_pct is not None:
+        views_delta = hero_views_pct - 100
+        helper_views = (
+            f"{views_delta:+.0f}% vs benchmark "
+            f"({bench_avg_clicks:,.0f} views)"
         )
-        st.markdown(
-            f'<p class="client-section-intro">{CHART_EXPLAINERS["section_01_headlines"]}</p>'
-            '<hr class="client-section-divider" />',
-            unsafe_allow_html=True,
+    else:
+        helper_views = "No market benchmark available"
+
+    if hero_applies_pct is not None:
+        applies_delta = hero_applies_pct - 100
+        helper_applies = (
+            f"{applies_delta:+.0f}% vs benchmark "
+            f"({bench_avg_applies:,.1f} applies)"
         )
+    else:
+        helper_applies = "No market benchmark available"
 
-        # KPI 4 (Cost per apply) helper falls back gracefully when spend is 0
-        # or there are no applies yet — the value itself goes to em-dash.
-        if annual_spend > 0 and hero_total_applies > 0:
-            headline_cpa = f"£{annual_spend / hero_total_applies:,.2f}"
-            headline_cpa_helper = f"£{annual_spend:,.0f} total spend"
-        elif annual_spend > 0:
-            headline_cpa = "—"
-            headline_cpa_helper = f"£{annual_spend:,.0f} total spend, no applies yet"
-        else:
-            headline_cpa = "—"
-            headline_cpa_helper = "Set annual spend in settings"
-
-        # KPI 2 + 3 helpers carry the benchmark delta + raw benchmark mean
-        if hero_views_pct is not None:
-            views_delta = hero_views_pct - 100
-            helper_views = (
-                f"{views_delta:+.0f}% vs benchmark "
-                f"({bench_avg_clicks:,.0f} views)"
-            )
-        else:
-            helper_views = "No market benchmark available"
-
-        if hero_applies_pct is not None:
-            applies_delta = hero_applies_pct - 100
-            helper_applies = (
-                f"{applies_delta:+.0f}% vs benchmark "
-                f"({bench_avg_applies:,.1f} applies)"
-            )
-        else:
-            helper_applies = "No market benchmark available"
-
-        h_col1, h_col2, h_col3, h_col4 = st.columns(4)
-        with h_col1:
-            st.markdown(
-                kpi_card_dark(
-                    "Jobs advertised",
-                    f"{hero_num_jobs:,}",
-                    helper="Across the reporting period",
-                ),
-                unsafe_allow_html=True,
-            )
-        with h_col2:
-            st.markdown(
-                kpi_card(
-                    "Avg views per vacancy",
-                    f"{hero_avg_clicks:,.0f}",
-                    helper=helper_views,
-                ),
-                unsafe_allow_html=True,
-            )
-        with h_col3:
-            st.markdown(
-                kpi_card(
-                    "Avg applies per vacancy",
-                    f"{hero_avg_applies:,.1f}",
-                    helper=helper_applies,
-                ),
-                unsafe_allow_html=True,
-            )
-        with h_col4:
-            st.markdown(
-                kpi_card("Cost per apply", headline_cpa, helper=headline_cpa_helper),
-                unsafe_allow_html=True,
-            )
+    st.markdown(
+        '<div class="client-section-card">'
+        + section_anchor('headlines')
+        + section_eyebrow('01', 'Headline numbers', short='Headlines')
+        + f'<p class="client-section-intro">{CHART_EXPLAINERS["section_01_headlines"]}</p>'
+        + '<hr class="client-section-divider" />'
+        + '<div class="client-kpi-grid">'
+        + kpi_card_dark(
+            "Jobs advertised", f"{hero_num_jobs:,}",
+            helper="Across the reporting period",
+        )
+        + kpi_card(
+            "Avg views per vacancy", f"{hero_avg_clicks:,.0f}",
+            helper=helper_views,
+        )
+        + kpi_card(
+            "Avg applies per vacancy", f"{hero_avg_applies:,.1f}",
+            helper=helper_applies,
+        )
+        + kpi_card("Cost per apply", headline_cpa, helper=headline_cpa_helper)
+        + '</div></div>',
+        unsafe_allow_html=True,
+    )
 
     # ===================================================================
     # SECTION 02: PER-VACANCY BENCHMARKING (existing scatter)

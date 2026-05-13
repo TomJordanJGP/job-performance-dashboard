@@ -535,6 +535,36 @@ def _build_css() -> str:
         padding: 32px 36px !important;
     }}
 
+    /* Section card — same border/padding/radius as the hero so the cards
+       read as one family. Used by section 01 (and any future section that
+       wants the same chrome). Built as a single st.markdown HTML blob so
+       the padding is on a div we control, not on Streamlit's container. */
+    .client-section-card {{
+        background: {c['white']};
+        border: 1px solid {c['border']};
+        border-radius: 8px;
+        padding: 32px 36px;
+        margin: 8px 0 24px 0;
+    }}
+
+    /* 4-up KPI grid inside a section card. Auto-fits to 2x2 below 780 px. */
+    .client-kpi-grid {{
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        align-items: stretch;
+    }}
+
+    @media (max-width: 780px) {{
+        .client-kpi-grid {{
+            grid-template-columns: repeat(2, 1fr);
+        }}
+    }}
+
+    .client-kpi-grid .kpi-card {{
+        margin-bottom: 0;
+    }}
+
     /* Hero band */
     .client-hero {{
         background: {c['light_purple']};

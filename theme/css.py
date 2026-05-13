@@ -743,13 +743,20 @@ def _build_css() -> str:
         margin: 4px 0 20px 0;
     }}
 
-    /* Anchor target — invisible, contributes 48 px section spacing via margin */
+    /* Anchor target — invisible. For non-card sections it contributes the
+       48 px gap above the eyebrow; inside a section card the card's own
+       padding handles the inset, so the margin is suppressed. */
     .client-anchor {{
         display: block;
         height: 0;
         overflow: hidden;
         visibility: hidden;
         margin-top: 48px;
+        scroll-margin-top: 80px;
+    }}
+
+    .client-section-card .client-anchor {{
+        margin-top: 0;
     }}
 
     /* Dark KPI card variant — one of the four headline cards is filled */

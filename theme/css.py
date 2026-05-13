@@ -682,6 +682,22 @@ def _build_css() -> str:
         margin: 0 0 16px 0;
     }}
 
+    /* Short intro paragraph beneath a section h2, generic copy (not data-specific) */
+    .client-section-intro {{
+        font-family: 'DM Sans', sans-serif;
+        font-size: 15px;
+        line-height: 1.55;
+        color: {c['text_secondary']};
+        margin: 0 0 12px 0;
+    }}
+
+    /* Divider line between the section intro and the section content (KPI grid etc.) */
+    .client-section-divider {{
+        border: 0;
+        border-top: 1px solid {c['border']};
+        margin: 4px 0 20px 0;
+    }}
+
     /* Anchor target — invisible, contributes 48 px section spacing via margin */
     .client-anchor {{
         display: block;

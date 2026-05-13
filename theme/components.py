@@ -196,10 +196,16 @@ def sidebar_section_header(label: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def section_eyebrow(num, title):
-    """Build the '01 — Headline numbers' eyebrow + h2 pair."""
+def section_eyebrow(num, title, short=None):
+    """Build the eyebrow ('01 — Headlines') + h2 pair.
+
+    `short` is the optional short identifier shown in the small eyebrow
+    line above the h2 (e.g. 'Headlines'). When omitted, falls back to
+    the full title.
+    """
+    short_text = short if short is not None else title
     return (
-        f'<div class="client-eyebrow"><span class="num">{num}</span></div>'
+        f'<div class="client-eyebrow"><span class="num">{num}</span>— {short_text}</div>'
         f'<h2 class="client-h2">{title}</h2>'
     )
 

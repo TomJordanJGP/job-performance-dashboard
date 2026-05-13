@@ -1032,22 +1032,8 @@ def render_client_report(df, media_df=None):
         zero_low = len(scatter_df[scatter_df['category'] == 'Zero Applies (Low Traffic)'])
         no_bench_count = len(scatter_df[scatter_df['category'] == 'Low Sample (No Benchmark)'])
 
-        with grid_col:
-            st.markdown(
-                status_grid([
-                    {'label': 'Benchmarkable',     'value': f"{benchmarkable_count:,}",
-                     'help': 'In-period vs occupation average'},
-                    {'label': 'Low traffic',       'value': f"{zero_low:,}",
-                     'help': 'Zero applies, below median views'},
-                    {'label': 'Possible redirect', 'value': f"{zero_redirect:,}",
-                     'help': 'Zero applies, high views'},
-                    {'label': 'No benchmark',      'value': f"{no_bench_count:,}",
-                     'help': 'Occupation lacks ≥5 market peers'},
-                ]),
-                unsafe_allow_html=True,
-            )
-
-        # Commentary spans the full width below the chart + grid row
+        # Pre-compute commentary so we can render it inside grid_col under the
+        # status grid (rather than full-width below the chart + grid row).
         benchmarkable_rows = scatter_df[scatter_df['category'] == 'Benchmarkable'].copy()
         top_performers = []
         worst_performers = []
@@ -1066,7 +1052,22 @@ def render_client_report(df, media_df=None):
             'top_performers': top_performers,
             'worst_performers': worst_performers,
         })
-        st.markdown(commentary_panel(commentary), unsafe_allow_html=True)
+
+        with grid_col:
+            st.markdown(
+                status_grid([
+                    {'label': 'Benchmarkable',     'value': f"{benchmarkable_count:,}",
+                     'help': 'In-period vs occupation average'},
+                    {'label': 'Low traffic',       'value': f"{zero_low:,}",
+                     'help': 'Zero applies, below median views'},
+                    {'label': 'Possible redirect', 'value': f"{zero_redirect:,}",
+                     'help': 'Zero applies, high views'},
+                    {'label': 'No benchmark',      'value': f"{no_bench_count:,}",
+                     'help': 'Occupation lacks ≥5 market peers'},
+                ]),
+                unsafe_allow_html=True,
+            )
+            st.markdown(commentary_panel(commentary), unsafe_allow_html=True)
 
     # ===================================================================
     # SECTION 03: PERFORMANCE VS MARKET (existing benchmarking summary)

@@ -724,13 +724,17 @@ def _build_css() -> str:
         margin-left: 4px;
     }}
 
+    /* !important is needed on h2/hr to beat Streamlit's emotion-cache rules
+       on stMarkdownContainer (e.g. .st-emotion-cache-gc7n1q h2 / hr), which
+       inject top/left margins and 1em padding by default. */
     .client-h2 {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;
         font-size: 26px;
         line-height: 1.2;
         color: {c['deep_blue']};
-        margin: 0 0 16px 0;
+        margin: 0 0 1rem 0 !important;
+        padding: 0 !important;
     }}
 
     /* Short intro paragraph beneath a section h2, generic copy (not data-specific) */
@@ -744,26 +748,23 @@ def _build_css() -> str:
 
     /* Divider line between the section intro and the section content (KPI grid etc.) */
     .client-section-divider {{
-        border: 0;
-        border-top: 1px solid {c['border']};
-        margin: 4px 0 20px 0;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-top: 2px solid {c['border']} !important;
     }}
 
-    /* Anchor target — invisible. For non-card sections it contributes the
-       48 px gap above the eyebrow; inside a section card the card's own
-       padding handles the inset, so the margin is suppressed. */
+    /* Anchor target — invisible hash-link target. Zero layout footprint so
+       it never pushes adjacent elements. scroll-margin-top is kept so
+       direct hash navigation lands below any sticky header. */
     .client-anchor {{
         display: block;
         height: 0;
+        margin: 0;
+        padding: 0;
         overflow: hidden;
         visibility: hidden;
-        margin-top: 48px;
         scroll-margin-top: 80px;
-    }}
-
-    .client-section-card .client-anchor,
-    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) .client-anchor {{
-        margin-top: 0;
     }}
 
     /* Dark KPI card variant — one of the four headline cards is filled */

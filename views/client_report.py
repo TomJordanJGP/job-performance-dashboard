@@ -913,8 +913,7 @@ def render_client_report(df, media_df=None):
     # ===================================================================
     with st.container(border=True):
         st.markdown(
-            section_anchor('scatter')
-            + section_eyebrow('02', 'Per-vacancy benchmarking', short='Benchmarking')
+            section_eyebrow('02', 'Per-vacancy benchmarking', short='Benchmarking')
             + f'<p class="client-section-intro">{CHART_EXPLAINERS["section_02_intro"]}</p>'
             + '<hr class="client-section-divider" />',
             unsafe_allow_html=True,

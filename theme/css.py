@@ -523,6 +523,7 @@ def _build_css() -> str:
     /* Hero band */
     .client-hero {{
         background: {c['light_purple']};
+        border: 1px solid {c['border']};
         border-radius: 8px;
         padding: 32px 36px;
         margin: 8px 0 24px 0;
@@ -563,7 +564,11 @@ def _build_css() -> str:
         line-height: 1.55;
         color: {c['text_secondary']};
         margin: 0 0 24px 0;
-        max-width: 720px;
+    }}
+
+    .client-hero .hero-lede strong {{
+        color: {c['deep_blue']};
+        font-weight: 700;
     }}
 
     .client-hero-meta {{

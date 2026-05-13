@@ -745,12 +745,60 @@ def render_client_report(df, media_df=None):
             client_media = apply_media_categories(client_media)
 
     # --- Hero band ---
-    lede = (
-        f"How {selected_client}'s vacancy advertising performed against the wider market "
-        "during the reporting period — applies, costs, ROI, salaries, and channels."
+    # Dynamic lede: vacancies, views vs benchmark, applies vs benchmark,
+    # blended CPA, and rate-card saving. Each clause is dropped if the
+    # underlying data is missing (no benchmark, no spend, no saving).
+    hero_num_jobs = len(client_df)
+    hero_total_applies = int(client_df['applies'].sum())
+    hero_rate_card_total = rate_card_price * hero_num_jobs
+
+    if len(benchmark_df) > 0:
+        bench_avg_clicks = benchmark_df['clicks'].mean()
+        bench_avg_applies = benchmark_df['applies'].mean()
+        cli_avg_clicks = client_df['clicks'].mean()
+        cli_avg_applies = client_df['applies'].mean()
+        hero_views_pct = (cli_avg_clicks / bench_avg_clicks * 100) if bench_avg_clicks > 0 else None
+        hero_applies_pct = (cli_avg_applies / bench_avg_applies * 100) if bench_avg_applies > 0 else None
+    else:
+        hero_views_pct = None
+        hero_applies_pct = None
+
+    lede_intro = (
+        f"Across <strong>{hero_num_jobs:,} vacancies</strong> in this period, "
+        f"{selected_client}"
     )
+    lede_perf = ""
+    if hero_views_pct is not None and hero_applies_pct is not None:
+        if hero_views_pct >= 100 and hero_applies_pct >= 100:
+            verb = "outperformed the market"
+        elif hero_views_pct < 100 and hero_applies_pct < 100:
+            verb = "underperformed the market"
+        else:
+            verb = "saw mixed market performance"
+        lede_perf = (
+            f" {verb} on visibility "
+            f"(<strong>{hero_views_pct:.0f}% of benchmark views</strong>) "
+            f"and engagement "
+            f"(<strong>{hero_applies_pct:.0f}% of benchmark applies</strong>)"
+        )
+
+    lede_cost = ""
+    if annual_spend > 0 and hero_total_applies > 0:
+        cpa = annual_spend / hero_total_applies
+        lede_cost = f", with a blended cost per apply of <strong>£{cpa:,.0f}</strong>"
+        if hero_rate_card_total > 0:
+            saving = hero_rate_card_total - annual_spend
+            if saving > 0:
+                saving_pct = saving / hero_rate_card_total * 100
+                lede_cost += (
+                    f" and a <strong>{saving_pct:.0f}% saving</strong> "
+                    "vs rate-card pricing"
+                )
+
+    lede = (lede_intro + lede_perf + lede_cost + ".").strip()
+
     st.markdown(
-        client_hero(selected_client, period_str, lede, len(client_df), am_name=contact_name),
+        client_hero(selected_client, period_str, lede, hero_num_jobs, am_name=contact_name),
         unsafe_allow_html=True,
     )
 

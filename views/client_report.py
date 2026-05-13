@@ -42,6 +42,41 @@ CHART_EXPLAINERS = {
         "Figures that summarise the client's overall performance for the "
         "reporting period — volume, engagement, and cost efficiency at a glance."
     ),
+    'section_02_intro': (
+        "How each individual vacancy performed against the market average "
+        "for the same occupation, plotted on views and applies and grouped "
+        "into engagement categories."
+    ),
+    'section_03_intro': (
+        "The client's average views and applies per vacancy compared with "
+        "the wider market benchmark, summarised as headline indices and a "
+        "side-by-side comparison chart."
+    ),
+    'section_04_intro': (
+        "Volume of jobs posted alongside the apply clicks they generated, "
+        "broken down by occupation category over the reporting period."
+    ),
+    'section_05_intro': (
+        "Spend efficiency at a glance — total spend versus the rate-card "
+        "equivalent, the cash saving delivered, and the cost paid per apply."
+    ),
+    'section_06_intro': (
+        "Which occupations produced applies most efficiently and which ones "
+        "cost the most per apply, with the full breakdown available on demand."
+    ),
+    'section_07_intro': (
+        "Where the client's advertised salaries sit against the wider market "
+        "for the most-posted occupations, with the client mean, national mean, "
+        "and regional mean marked on each distribution."
+    ),
+    'section_08_intro': (
+        "Performance of the traffic channels that fed candidates to the "
+        "client's vacancies, ranked by conversion from views to applies."
+    ),
+    'section_09_intro': (
+        "Download a branded PowerPoint deck containing every chart and "
+        "commentary on this page, ready to share with the client."
+    ),
     'benchmark_scatter': (
         "Each marker is one of your vacancies. Its position shows how views "
         "and applies compare to the average for the same occupation across "
@@ -876,446 +911,466 @@ def render_client_report(df, media_df=None):
     # ===================================================================
     # SECTION 02: PER-VACANCY BENCHMARKING (existing scatter)
     # ===================================================================
-    st.markdown(
-        section_anchor('scatter') + section_eyebrow('02', 'Per-vacancy benchmarking'),
-        unsafe_allow_html=True,
-    )
-
-    # Calculate per-occupation benchmark averages (from ALL clients)
-    occ_benchmarks = benchmark_df.groupby('occupation').agg(
-        avg_clicks=('clicks', 'mean'),
-        avg_applies=('applies', 'mean'),
-        vacancy_count=('clicks', 'count')
-    ).reset_index()
-
-    # Only use occupations with enough data for reliable benchmarks
-    MIN_BENCHMARK_VACANCIES = 5
-    reliable_occs = occ_benchmarks[occ_benchmarks['vacancy_count'] >= MIN_BENCHMARK_VACANCIES]
-
-    # Calculate % difference from benchmark for each client vacancy (vectorized)
-    scatter_df = client_df[['title', 'occupation', 'clicks', 'applies']].copy()
-    scatter_df = scatter_df.merge(
-        reliable_occs[['occupation', 'avg_clicks', 'avg_applies']],
-        on='occupation', how='left'
-    )
-
-    # Vectorized % diff calculations (safe division)
-    scatter_df['views_diff_pct'] = (
-        (scatter_df['clicks'] - scatter_df['avg_clicks'])
-        / scatter_df['avg_clicks'].replace(0, np.nan) * 100
-    ).fillna(0)
-    scatter_df['applies_diff_pct'] = (
-        (scatter_df['applies'] - scatter_df['avg_applies'])
-        / scatter_df['avg_applies'].replace(0, np.nan) * 100
-    ).fillna(0)
-
-    # Categorize vacancies into 4 groups (matching original PDF categories)
-    has_benchmark = scatter_df['avg_clicks'].notna()
-    zero_applies = scatter_df['applies'] == 0
-    occ_median_clicks = scatter_df.loc[has_benchmark, 'clicks'].median() if has_benchmark.any() else 0
-    high_traffic = scatter_df['clicks'] > occ_median_clicks
-
-    scatter_df['category'] = np.select(
-        [has_benchmark & ~zero_applies,
-         has_benchmark & zero_applies & high_traffic,
-         has_benchmark & zero_applies & ~high_traffic],
-        ['Benchmarkable', 'Zero Applies (Possible Redirect)', 'Zero Applies (Low Traffic)'],
-        default='Low Sample (No Benchmark)'
-    )
-
-    # Clean up merge columns and fill NaN diffs for no-benchmark rows
-    scatter_df.drop(columns=['avg_clicks', 'avg_applies'], inplace=True)
-    scatter_df.loc[~has_benchmark, ['views_diff_pct', 'applies_diff_pct']] = 0
-
-    # --- Brand colour + marker maps for 4 categories ---
-    category_colors = {
-        'Benchmarkable': JGP_COLORS['primary'],
-        'Zero Applies (Possible Redirect)': JGP_COLORS['blue'],
-        'Zero Applies (Low Traffic)': JGP_COLORS['negative'],
-        'Low Sample (No Benchmark)': JGP_COLORS['light_purple'],
-    }
-    category_symbols = {
-        'Benchmarkable': 'triangle-up',
-        'Zero Applies (Possible Redirect)': 'diamond',
-        'Zero Applies (Low Traffic)': 'x',
-        'Low Sample (No Benchmark)': 'circle',
-    }
-
-    chart_col, grid_col = st.columns([3, 2])
-
-    with chart_col:
-        if len(scatter_df) > 0:
-            fig_scatter = go.Figure()
-            for cat in ['Benchmarkable', 'Zero Applies (Possible Redirect)', 'Zero Applies (Low Traffic)', 'Low Sample (No Benchmark)']:
-                cat_data = scatter_df[scatter_df['category'] == cat]
-                if len(cat_data) == 0:
-                    continue
-                fig_scatter.add_trace(go.Scatter(
-                    x=cat_data['applies_diff_pct'],
-                    y=cat_data['views_diff_pct'],
-                    mode='markers',
-                    name=cat,
-                    marker=dict(
-                        color=category_colors[cat],
-                        symbol=category_symbols[cat],
-                        size=10,
-                        line=dict(width=1, color='white')
-                    ),
-                    customdata=cat_data[['title', 'occupation', 'clicks', 'applies']].values,
-                    hovertemplate=(
-                        "<b>%{customdata[0]}</b><br>"
-                        "Occupation: %{customdata[1]}<br>"
-                        "Views: %{customdata[2]}<br>"
-                        "Applies: %{customdata[3]}<br>"
-                        "Views vs Bench: %{y:+.0f}%<br>"
-                        "Applies vs Bench: %{x:+.0f}%<extra></extra>"
-                    ),
-                ))
-            fig_scatter.add_hline(y=0, line_dash="dash", line_color="grey", opacity=0.5)
-            fig_scatter.add_vline(x=0, line_dash="dash", line_color="grey", opacity=0.5)
-            fig_scatter.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-            fig_scatter.update_layout(
-                height=500,
-                showlegend=True,
-                legend=dict(orientation='h', y=-0.15, font=dict(size=11)),
-                xaxis_title="Applies Difference from Benchmark (%)",
-                yaxis_title="Views Difference from Benchmark (%)",
-                plot_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(gridcolor=JGP_COLORS['light_purple'], gridwidth=1, zeroline=False),
-                yaxis=dict(gridcolor=JGP_COLORS['light_purple'], gridwidth=1, zeroline=False),
-            )
-            st.plotly_chart(fig_scatter, use_container_width=True)
-            st.caption(chart_caption('benchmark_scatter', slot_dims))
-            report_figures['scatter'] = fig_scatter
-
-    benchmarkable_count = len(scatter_df[scatter_df['category'] == 'Benchmarkable'])
-    zero_redirect = len(scatter_df[scatter_df['category'] == 'Zero Applies (Possible Redirect)'])
-    zero_low = len(scatter_df[scatter_df['category'] == 'Zero Applies (Low Traffic)'])
-    no_bench_count = len(scatter_df[scatter_df['category'] == 'Low Sample (No Benchmark)'])
-
-    with grid_col:
+    with st.container(border=True):
         st.markdown(
-            status_grid([
-                {'label': 'Benchmarkable',     'value': f"{benchmarkable_count:,}",
-                 'help': 'In-period vs occupation average'},
-                {'label': 'Low traffic',       'value': f"{zero_low:,}",
-                 'help': 'Zero applies, below median views'},
-                {'label': 'Possible redirect', 'value': f"{zero_redirect:,}",
-                 'help': 'Zero applies, high views'},
-                {'label': 'No benchmark',      'value': f"{no_bench_count:,}",
-                 'help': 'Occupation lacks ≥5 market peers'},
-            ]),
+            section_anchor('scatter')
+            + section_eyebrow('02', 'Per-vacancy benchmarking', short='Benchmarking')
+            + f'<p class="client-section-intro">{CHART_EXPLAINERS["section_02_intro"]}</p>'
+            + '<hr class="client-section-divider" />',
             unsafe_allow_html=True,
         )
 
-    # Commentary spans the full width below the chart + grid row
-    benchmarkable_rows = scatter_df[scatter_df['category'] == 'Benchmarkable'].copy()
-    top_performers = []
-    worst_performers = []
-    if len(benchmarkable_rows) > 0:
-        benchmarkable_rows['_score'] = benchmarkable_rows['views_diff_pct'] + benchmarkable_rows['applies_diff_pct']
-        top_sorted = benchmarkable_rows.nlargest(3, '_score')
-        top_performers = top_sorted[['title', 'occupation', 'views_diff_pct', 'applies_diff_pct']].to_dict('records')
-        worst_sorted = benchmarkable_rows.nsmallest(3, '_score')
-        worst_performers = worst_sorted[['title', 'occupation', 'views_diff_pct', 'applies_diff_pct']].to_dict('records')
+        # Calculate per-occupation benchmark averages (from ALL clients)
+        occ_benchmarks = benchmark_df.groupby('occupation').agg(
+            avg_clicks=('clicks', 'mean'),
+            avg_applies=('applies', 'mean'),
+            vacancy_count=('clicks', 'count')
+        ).reset_index()
 
-    commentary = generate_section_commentary('scatter', {
-        'total_count': len(scatter_df),
-        'benchmarkable_count': benchmarkable_count,
-        'zero_applies_count': zero_redirect + zero_low,
-        'no_benchmark_count': no_bench_count,
-        'top_performers': top_performers,
-        'worst_performers': worst_performers,
-    })
-    st.markdown(commentary_panel(commentary), unsafe_allow_html=True)
+        # Only use occupations with enough data for reliable benchmarks
+        MIN_BENCHMARK_VACANCIES = 5
+        reliable_occs = occ_benchmarks[occ_benchmarks['vacancy_count'] >= MIN_BENCHMARK_VACANCIES]
+
+        # Calculate % difference from benchmark for each client vacancy (vectorized)
+        scatter_df = client_df[['title', 'occupation', 'clicks', 'applies']].copy()
+        scatter_df = scatter_df.merge(
+            reliable_occs[['occupation', 'avg_clicks', 'avg_applies']],
+            on='occupation', how='left'
+        )
+
+        # Vectorized % diff calculations (safe division)
+        scatter_df['views_diff_pct'] = (
+            (scatter_df['clicks'] - scatter_df['avg_clicks'])
+            / scatter_df['avg_clicks'].replace(0, np.nan) * 100
+        ).fillna(0)
+        scatter_df['applies_diff_pct'] = (
+            (scatter_df['applies'] - scatter_df['avg_applies'])
+            / scatter_df['avg_applies'].replace(0, np.nan) * 100
+        ).fillna(0)
+
+        # Categorize vacancies into 4 groups (matching original PDF categories)
+        has_benchmark = scatter_df['avg_clicks'].notna()
+        zero_applies = scatter_df['applies'] == 0
+        occ_median_clicks = scatter_df.loc[has_benchmark, 'clicks'].median() if has_benchmark.any() else 0
+        high_traffic = scatter_df['clicks'] > occ_median_clicks
+
+        scatter_df['category'] = np.select(
+            [has_benchmark & ~zero_applies,
+             has_benchmark & zero_applies & high_traffic,
+             has_benchmark & zero_applies & ~high_traffic],
+            ['Benchmarkable', 'Zero Applies (Possible Redirect)', 'Zero Applies (Low Traffic)'],
+            default='Low Sample (No Benchmark)'
+        )
+
+        # Clean up merge columns and fill NaN diffs for no-benchmark rows
+        scatter_df.drop(columns=['avg_clicks', 'avg_applies'], inplace=True)
+        scatter_df.loc[~has_benchmark, ['views_diff_pct', 'applies_diff_pct']] = 0
+
+        # --- Brand colour + marker maps for 4 categories ---
+        category_colors = {
+            'Benchmarkable': JGP_COLORS['primary'],
+            'Zero Applies (Possible Redirect)': JGP_COLORS['blue'],
+            'Zero Applies (Low Traffic)': JGP_COLORS['negative'],
+            'Low Sample (No Benchmark)': JGP_COLORS['light_purple'],
+        }
+        category_symbols = {
+            'Benchmarkable': 'triangle-up',
+            'Zero Applies (Possible Redirect)': 'diamond',
+            'Zero Applies (Low Traffic)': 'x',
+            'Low Sample (No Benchmark)': 'circle',
+        }
+
+        chart_col, grid_col = st.columns([3, 2])
+
+        with chart_col:
+            if len(scatter_df) > 0:
+                fig_scatter = go.Figure()
+                for cat in ['Benchmarkable', 'Zero Applies (Possible Redirect)', 'Zero Applies (Low Traffic)', 'Low Sample (No Benchmark)']:
+                    cat_data = scatter_df[scatter_df['category'] == cat]
+                    if len(cat_data) == 0:
+                        continue
+                    fig_scatter.add_trace(go.Scatter(
+                        x=cat_data['applies_diff_pct'],
+                        y=cat_data['views_diff_pct'],
+                        mode='markers',
+                        name=cat,
+                        marker=dict(
+                            color=category_colors[cat],
+                            symbol=category_symbols[cat],
+                            size=10,
+                            line=dict(width=1, color='white')
+                        ),
+                        customdata=cat_data[['title', 'occupation', 'clicks', 'applies']].values,
+                        hovertemplate=(
+                            "<b>%{customdata[0]}</b><br>"
+                            "Occupation: %{customdata[1]}<br>"
+                            "Views: %{customdata[2]}<br>"
+                            "Applies: %{customdata[3]}<br>"
+                            "Views vs Bench: %{y:+.0f}%<br>"
+                            "Applies vs Bench: %{x:+.0f}%<extra></extra>"
+                        ),
+                    ))
+                fig_scatter.add_hline(y=0, line_dash="dash", line_color="grey", opacity=0.5)
+                fig_scatter.add_vline(x=0, line_dash="dash", line_color="grey", opacity=0.5)
+                fig_scatter.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+                fig_scatter.update_layout(
+                    height=500,
+                    showlegend=True,
+                    legend=dict(orientation='h', y=-0.15, font=dict(size=11)),
+                    xaxis_title="Applies Difference from Benchmark (%)",
+                    yaxis_title="Views Difference from Benchmark (%)",
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(gridcolor=JGP_COLORS['light_purple'], gridwidth=1, zeroline=False),
+                    yaxis=dict(gridcolor=JGP_COLORS['light_purple'], gridwidth=1, zeroline=False),
+                )
+                st.plotly_chart(fig_scatter, use_container_width=True)
+                st.caption(chart_caption('benchmark_scatter', slot_dims))
+                report_figures['scatter'] = fig_scatter
+
+        benchmarkable_count = len(scatter_df[scatter_df['category'] == 'Benchmarkable'])
+        zero_redirect = len(scatter_df[scatter_df['category'] == 'Zero Applies (Possible Redirect)'])
+        zero_low = len(scatter_df[scatter_df['category'] == 'Zero Applies (Low Traffic)'])
+        no_bench_count = len(scatter_df[scatter_df['category'] == 'Low Sample (No Benchmark)'])
+
+        with grid_col:
+            st.markdown(
+                status_grid([
+                    {'label': 'Benchmarkable',     'value': f"{benchmarkable_count:,}",
+                     'help': 'In-period vs occupation average'},
+                    {'label': 'Low traffic',       'value': f"{zero_low:,}",
+                     'help': 'Zero applies, below median views'},
+                    {'label': 'Possible redirect', 'value': f"{zero_redirect:,}",
+                     'help': 'Zero applies, high views'},
+                    {'label': 'No benchmark',      'value': f"{no_bench_count:,}",
+                     'help': 'Occupation lacks ≥5 market peers'},
+                ]),
+                unsafe_allow_html=True,
+            )
+
+        # Commentary spans the full width below the chart + grid row
+        benchmarkable_rows = scatter_df[scatter_df['category'] == 'Benchmarkable'].copy()
+        top_performers = []
+        worst_performers = []
+        if len(benchmarkable_rows) > 0:
+            benchmarkable_rows['_score'] = benchmarkable_rows['views_diff_pct'] + benchmarkable_rows['applies_diff_pct']
+            top_sorted = benchmarkable_rows.nlargest(3, '_score')
+            top_performers = top_sorted[['title', 'occupation', 'views_diff_pct', 'applies_diff_pct']].to_dict('records')
+            worst_sorted = benchmarkable_rows.nsmallest(3, '_score')
+            worst_performers = worst_sorted[['title', 'occupation', 'views_diff_pct', 'applies_diff_pct']].to_dict('records')
+
+        commentary = generate_section_commentary('scatter', {
+            'total_count': len(scatter_df),
+            'benchmarkable_count': benchmarkable_count,
+            'zero_applies_count': zero_redirect + zero_low,
+            'no_benchmark_count': no_bench_count,
+            'top_performers': top_performers,
+            'worst_performers': worst_performers,
+        })
+        st.markdown(commentary_panel(commentary), unsafe_allow_html=True)
 
     # ===================================================================
     # SECTION 03: PERFORMANCE VS MARKET (existing benchmarking summary)
     # ===================================================================
-    st.markdown(
-        section_anchor('benchmark') + section_eyebrow('03', 'Performance vs market'),
-        unsafe_allow_html=True,
-    )
-
-    benchmark_avg_clicks = benchmark_df['clicks'].mean() if len(benchmark_df) > 0 else 0
-    benchmark_avg_applies = benchmark_df['applies'].mean() if len(benchmark_df) > 0 else 0
-    client_avg_clicks = client_df['clicks'].mean() if len(client_df) > 0 else 0
-    client_avg_applies = client_df['applies'].mean() if len(client_df) > 0 else 0
-    views_pct = (client_avg_clicks / benchmark_avg_clicks * 100) if benchmark_avg_clicks > 0 else 0
-    applies_pct = (client_avg_applies / benchmark_avg_applies * 100) if benchmark_avg_applies > 0 else 0
-
-    # Two compact KPI cards (replaces the previous 4-tile metric row).
-    bench_kpi1, bench_kpi2 = st.columns(2)
-    with bench_kpi1:
+    with st.container(border=True):
         st.markdown(
-            kpi_card(
-                "Average views per vacancy",
-                f"{client_avg_clicks:,.0f}",
-                helper=f"Market benchmark {benchmark_avg_clicks:,.0f} ({views_pct:.0f}% of market)",
-            ),
-            unsafe_allow_html=True,
-        )
-    with bench_kpi2:
-        st.markdown(
-            kpi_card(
-                "Average applies per vacancy",
-                f"{client_avg_applies:,.1f}",
-                helper=f"Market benchmark {benchmark_avg_applies:,.1f} ({applies_pct:.0f}% of market)",
-            ),
+            section_anchor('benchmark')
+            + section_eyebrow('03', 'Performance vs market', short='Performance')
+            + f'<p class="client-section-intro">{CHART_EXPLAINERS["section_03_intro"]}</p>'
+            + '<hr class="client-section-divider" />',
             unsafe_allow_html=True,
         )
 
-    # Indexed bars at 100% baseline
-    fig_bench = go.Figure()
-    fig_bench.add_trace(go.Bar(
-        x=['Views', 'Applies'],
-        y=[views_pct, applies_pct],
-        marker_color=[
-            JGP_COLORS['positive'] if views_pct >= 100 else JGP_COLORS['blue'],
-            JGP_COLORS['positive'] if applies_pct >= 100 else JGP_COLORS['blue'],
-        ],
-        text=[f"{views_pct:.0f}%", f"{applies_pct:.0f}%"],
-        textposition='outside',
-        textfont=dict(size=14, color=JGP_COLORS['deep_blue']),
-    ))
-    fig_bench.add_hline(
-        y=100, line_dash="dash", line_width=3, line_color=JGP_COLORS['accent'],
-        annotation_text="Market benchmark (100%)",
-        annotation_position="top right",
-        annotation_bgcolor="white",
-        annotation_bordercolor=JGP_COLORS['deep_blue'],
-        annotation_borderwidth=1,
-        annotation_font=dict(color=JGP_COLORS['deep_blue'], size=13),
-    )
-    fig_bench.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-    fig_bench.update_layout(
-        yaxis_title="% of market benchmark",
-        height=380, showlegend=False,
-        yaxis_range=[0, max(views_pct, applies_pct, 100) * 1.25],
-    )
-    st.plotly_chart(fig_bench, use_container_width=True)
-    st.caption(chart_caption('benchmark_average', slot_dims))
-    report_figures['benchmark_combined'] = fig_bench
+        benchmark_avg_clicks = benchmark_df['clicks'].mean() if len(benchmark_df) > 0 else 0
+        benchmark_avg_applies = benchmark_df['applies'].mean() if len(benchmark_df) > 0 else 0
+        client_avg_clicks = client_df['clicks'].mean() if len(client_df) > 0 else 0
+        client_avg_applies = client_df['applies'].mean() if len(client_df) > 0 else 0
+        views_pct = (client_avg_clicks / benchmark_avg_clicks * 100) if benchmark_avg_clicks > 0 else 0
+        applies_pct = (client_avg_applies / benchmark_avg_applies * 100) if benchmark_avg_applies > 0 else 0
 
-    bench_commentary = generate_section_commentary('benchmark', {
-        'client_avg_clicks': client_avg_clicks,
-        'benchmark_avg_clicks': benchmark_avg_clicks,
-        'client_avg_applies': client_avg_applies,
-        'benchmark_avg_applies': benchmark_avg_applies,
-        'num_jobs': len(client_df),
-        'client_name': selected_client,
-    })
-    st.markdown(commentary_panel(bench_commentary), unsafe_allow_html=True)
+        # Two compact KPI cards (replaces the previous 4-tile metric row).
+        bench_kpi1, bench_kpi2 = st.columns(2)
+        with bench_kpi1:
+            st.markdown(
+                kpi_card(
+                    "Average views per vacancy",
+                    f"{client_avg_clicks:,.0f}",
+                    helper=f"Market benchmark {benchmark_avg_clicks:,.0f} ({views_pct:.0f}% of market)",
+                ),
+                unsafe_allow_html=True,
+            )
+        with bench_kpi2:
+            st.markdown(
+                kpi_card(
+                    "Average applies per vacancy",
+                    f"{client_avg_applies:,.1f}",
+                    helper=f"Market benchmark {benchmark_avg_applies:,.1f} ({applies_pct:.0f}% of market)",
+                ),
+                unsafe_allow_html=True,
+            )
+
+        # Indexed bars at 100% baseline
+        fig_bench = go.Figure()
+        fig_bench.add_trace(go.Bar(
+            x=['Views', 'Applies'],
+            y=[views_pct, applies_pct],
+            marker_color=[
+                JGP_COLORS['positive'] if views_pct >= 100 else JGP_COLORS['blue'],
+                JGP_COLORS['positive'] if applies_pct >= 100 else JGP_COLORS['blue'],
+            ],
+            text=[f"{views_pct:.0f}%", f"{applies_pct:.0f}%"],
+            textposition='outside',
+            textfont=dict(size=14, color=JGP_COLORS['deep_blue']),
+        ))
+        fig_bench.add_hline(
+            y=100, line_dash="dash", line_width=3, line_color=JGP_COLORS['accent'],
+            annotation_text="Market benchmark (100%)",
+            annotation_position="top right",
+            annotation_bgcolor="white",
+            annotation_bordercolor=JGP_COLORS['deep_blue'],
+            annotation_borderwidth=1,
+            annotation_font=dict(color=JGP_COLORS['deep_blue'], size=13),
+        )
+        fig_bench.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+        fig_bench.update_layout(
+            yaxis_title="% of market benchmark",
+            height=380, showlegend=False,
+            yaxis_range=[0, max(views_pct, applies_pct, 100) * 1.25],
+        )
+        st.plotly_chart(fig_bench, use_container_width=True)
+        st.caption(chart_caption('benchmark_average', slot_dims))
+        report_figures['benchmark_combined'] = fig_bench
+
+        bench_commentary = generate_section_commentary('benchmark', {
+            'client_avg_clicks': client_avg_clicks,
+            'benchmark_avg_clicks': benchmark_avg_clicks,
+            'client_avg_applies': client_avg_applies,
+            'benchmark_avg_applies': benchmark_avg_applies,
+            'num_jobs': len(client_df),
+            'client_name': selected_client,
+        })
+        st.markdown(commentary_panel(bench_commentary), unsafe_allow_html=True)
 
     # ===================================================================
     # SECTION 04: POSTINGS & APPLY VOLUME (existing job postings)
     # ===================================================================
-    st.markdown(
-        section_anchor('postings') + section_eyebrow('04', 'Postings & apply volume'),
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True):
+        st.markdown(
+            section_anchor('postings')
+            + section_eyebrow('04', 'Postings & apply volume', short='Postings')
+            + f'<p class="client-section-intro">{CHART_EXPLAINERS["section_04_intro"]}</p>'
+            + '<hr class="client-section-divider" />',
+            unsafe_allow_html=True,
+        )
 
-    by_type = client_df.groupby('occupation').agg(
-        jobs_posted=('clicks', 'count'),
-        apply_clicks=('applies', 'sum')
-    ).reset_index().sort_values('jobs_posted', ascending=True)
+        by_type = client_df.groupby('occupation').agg(
+            jobs_posted=('clicks', 'count'),
+            apply_clicks=('applies', 'sum')
+        ).reset_index().sort_values('jobs_posted', ascending=True)
 
-    by_type = by_type[by_type['jobs_posted'] >= 1]
+        by_type = by_type[by_type['jobs_posted'] >= 1]
 
-    fig_postings = go.Figure()
-    fig_postings.add_trace(go.Bar(
-        y=by_type['occupation'], x=by_type['jobs_posted'],
-        name='Postings', orientation='h',
-        marker_color=JGP_COLORS['primary'],
-        text=by_type['jobs_posted'], textposition='outside'
-    ))
-    fig_postings.add_trace(go.Bar(
-        y=by_type['occupation'], x=by_type['apply_clicks'],
-        name='Applies', orientation='h',
-        marker_color=JGP_COLORS['accent'],
-        text=by_type['apply_clicks'].astype(int), textposition='outside',
-        textfont=dict(color=JGP_COLORS['deep_blue']),
-    ))
-    fig_postings.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-    fig_postings.update_layout(
-        barmode='group', height=max(400, len(by_type) * 40),
-        legend=dict(orientation='h', y=-0.1),
-        xaxis_title="Count", yaxis_title="",
-        bargap=0.1, bargroupgap=0.0,
-    )
-    st.plotly_chart(fig_postings, use_container_width=True)
-    st.caption(chart_caption('postings_by_type', slot_dims))
-    report_figures['postings'] = fig_postings
+        fig_postings = go.Figure()
+        fig_postings.add_trace(go.Bar(
+            y=by_type['occupation'], x=by_type['jobs_posted'],
+            name='Postings', orientation='h',
+            marker_color=JGP_COLORS['primary'],
+            text=by_type['jobs_posted'], textposition='outside'
+        ))
+        fig_postings.add_trace(go.Bar(
+            y=by_type['occupation'], x=by_type['apply_clicks'],
+            name='Applies', orientation='h',
+            marker_color=JGP_COLORS['accent'],
+            text=by_type['apply_clicks'].astype(int), textposition='outside',
+            textfont=dict(color=JGP_COLORS['deep_blue']),
+        ))
+        fig_postings.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+        fig_postings.update_layout(
+            barmode='group', height=max(400, len(by_type) * 40),
+            legend=dict(orientation='h', y=-0.1),
+            xaxis_title="Count", yaxis_title="",
+            bargap=0.1, bargroupgap=0.0,
+        )
+        st.plotly_chart(fig_postings, use_container_width=True)
+        st.caption(chart_caption('postings_by_type', slot_dims))
+        report_figures['postings'] = fig_postings
 
-    total_jobs = len(client_df)
-    total_applies_val = int(client_df['applies'].sum())
-    postings_commentary = generate_section_commentary('postings', {
-        'total_jobs': total_jobs,
-        'total_applies': total_applies_val,
-        'by_type': by_type,
-        'client_name': selected_client,
-    })
-    st.markdown(commentary_panel(postings_commentary), unsafe_allow_html=True)
+        total_jobs = len(client_df)
+        total_applies_val = int(client_df['applies'].sum())
+        postings_commentary = generate_section_commentary('postings', {
+            'total_jobs': total_jobs,
+            'total_applies': total_applies_val,
+            'by_type': by_type,
+            'client_name': selected_client,
+        })
+        st.markdown(commentary_panel(postings_commentary), unsafe_allow_html=True)
 
     # ===================================================================
     # SECTION 05: ADVERTISING ROI (existing; CPA split out in section 06 later)
     # ===================================================================
-    st.markdown(
-        section_anchor('roi') + section_eyebrow('05', 'Advertising ROI'),
-        unsafe_allow_html=True,
-    )
-
-    num_jobs = len(client_df)
-    total_clicks = int(client_df['clicks'].sum())
-    total_applies_val = int(client_df['applies'].sum())
-
-    roi_by_type = None
-    if annual_spend > 0:
-        cost_per_job = annual_spend / num_jobs if num_jobs > 0 else 0
-        cost_per_view = annual_spend / total_clicks if total_clicks > 0 else 0
-        cost_per_apply = annual_spend / total_applies_val if total_applies_val > 0 else 0
-        rate_card_total = rate_card_price * num_jobs
-        saving_pct = ((rate_card_total - annual_spend) / rate_card_total * 100) if rate_card_total > 0 else 0
-        saving_amount = max(0, rate_card_total - annual_spend)
-
-        # Four KPIs — one filled deep-blue (the headline saving)
-        roi_kpi1, roi_kpi2, roi_kpi3, roi_kpi4 = st.columns(4)
-        with roi_kpi1:
-            st.markdown(
-                kpi_card("Annual spend", f"£{annual_spend:,.0f}",
-                         helper="As entered in settings"),
-                unsafe_allow_html=True,
-            )
-        with roi_kpi2:
-            st.markdown(
-                kpi_card("Rate card equivalent", f"£{rate_card_total:,.0f}",
-                         helper=f"£{rate_card_price:,.0f} list × {num_jobs:,} ads"),
-                unsafe_allow_html=True,
-            )
-        with roi_kpi3:
-            st.markdown(
-                kpi_card_dark("Saving vs rate card", f"£{saving_amount:,.0f}",
-                              helper=f"{saving_pct:.0f}% under list"),
-                unsafe_allow_html=True,
-            )
-        with roi_kpi4:
-            st.markdown(
-                kpi_card("Cost per view", f"£{cost_per_view:,.2f}",
-                         helper="Annual spend ÷ total views"),
-                unsafe_allow_html=True,
-            )
-
-        # Saving bar — your spend stacked with the saving (green) makes
-        # the rate-card equivalent the full bar.
-        fig_roi = go.Figure()
-        fig_roi.add_trace(go.Bar(
-            y=['Cost'], x=[annual_spend],
-            name='Your spend',
-            orientation='h',
-            marker_color=JGP_COLORS['primary'],
-            text=[f"£{annual_spend:,.0f}"], textposition='inside',
-            textfont=dict(color=JGP_COLORS['white']),
-        ))
-        fig_roi.add_trace(go.Bar(
-            y=['Cost'], x=[saving_amount],
-            name=f'Saving ({saving_pct:.0f}%)',
-            orientation='h',
-            marker_color=JGP_COLORS['accent'],
-            text=[f"£{saving_amount:,.0f}"], textposition='inside',
-            textfont=dict(color=JGP_COLORS['deep_blue']),
-        ))
-        fig_roi.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-        fig_roi.update_layout(
-            barmode='stack',
-            height=180,
-            showlegend=True,
-            legend=dict(orientation='h', y=-0.4),
-            xaxis_title="GBP",
-            yaxis_title="",
-            margin=dict(t=20, b=40, l=40, r=20),
-        )
-        st.plotly_chart(fig_roi, use_container_width=True)
-        st.caption(chart_caption('spend_vs_ratecard', slot_dims))
-        report_figures['roi_cost'] = fig_roi
-
-        # Cost-per-apply by type — used in section 06 below + commentary
-        roi_by_type = client_df.groupby('occupation').agg(
-            total_applies=('applies', 'sum'),
-            job_count=('clicks', 'count')
-        ).reset_index()
-        roi_by_type = roi_by_type[roi_by_type['total_applies'] > 0]
-        roi_by_type['cost_allocated'] = annual_spend * (roi_by_type['job_count'] / roi_by_type['job_count'].sum())
-        roi_by_type['cost_per_apply'] = roi_by_type['cost_allocated'] / roi_by_type['total_applies']
-        roi_by_type = roi_by_type.sort_values('cost_per_apply', ascending=True)
-
-        roi_commentary = generate_section_commentary('roi', {
-            'annual_spend': annual_spend,
-            'rate_card_price': rate_card_price,
-            'num_jobs': num_jobs,
-            'total_clicks': total_clicks,
-            'total_applies': total_applies_val,
-            'cost_per_job': cost_per_job,
-            'cost_per_view': cost_per_view,
-            'cost_per_apply': cost_per_apply,
-            'saving_pct': saving_pct,
-            'roi_by_type': roi_by_type if len(roi_by_type) > 0 else None,
-        })
-        st.markdown(commentary_panel(roi_commentary), unsafe_allow_html=True)
-    else:
+    with st.container(border=True):
         st.markdown(
-            kpi_card_dark("Vacancies advertised", f"{num_jobs:,}",
-                          helper="Set annual spend in settings to see ROI analysis"),
+            section_anchor('roi')
+            + section_eyebrow('05', 'Advertising ROI', short='ROI')
+            + f'<p class="client-section-intro">{CHART_EXPLAINERS["section_05_intro"]}</p>'
+            + '<hr class="client-section-divider" />',
             unsafe_allow_html=True,
         )
+
+        num_jobs = len(client_df)
+        total_clicks = int(client_df['clicks'].sum())
+        total_applies_val = int(client_df['applies'].sum())
+
+        roi_by_type = None
+        if annual_spend > 0:
+            cost_per_job = annual_spend / num_jobs if num_jobs > 0 else 0
+            cost_per_view = annual_spend / total_clicks if total_clicks > 0 else 0
+            cost_per_apply = annual_spend / total_applies_val if total_applies_val > 0 else 0
+            rate_card_total = rate_card_price * num_jobs
+            saving_pct = ((rate_card_total - annual_spend) / rate_card_total * 100) if rate_card_total > 0 else 0
+            saving_amount = max(0, rate_card_total - annual_spend)
+
+            # Four KPIs — one filled deep-blue (the headline saving)
+            roi_kpi1, roi_kpi2, roi_kpi3, roi_kpi4 = st.columns(4)
+            with roi_kpi1:
+                st.markdown(
+                    kpi_card("Annual spend", f"£{annual_spend:,.0f}",
+                             helper="As entered in settings"),
+                    unsafe_allow_html=True,
+                )
+            with roi_kpi2:
+                st.markdown(
+                    kpi_card("Rate card equivalent", f"£{rate_card_total:,.0f}",
+                             helper=f"£{rate_card_price:,.0f} list × {num_jobs:,} ads"),
+                    unsafe_allow_html=True,
+                )
+            with roi_kpi3:
+                st.markdown(
+                    kpi_card_dark("Saving vs rate card", f"£{saving_amount:,.0f}",
+                                  helper=f"{saving_pct:.0f}% under list"),
+                    unsafe_allow_html=True,
+                )
+            with roi_kpi4:
+                st.markdown(
+                    kpi_card("Cost per view", f"£{cost_per_view:,.2f}",
+                             helper="Annual spend ÷ total views"),
+                    unsafe_allow_html=True,
+                )
+
+            # Saving bar — your spend stacked with the saving (green) makes
+            # the rate-card equivalent the full bar.
+            fig_roi = go.Figure()
+            fig_roi.add_trace(go.Bar(
+                y=['Cost'], x=[annual_spend],
+                name='Your spend',
+                orientation='h',
+                marker_color=JGP_COLORS['primary'],
+                text=[f"£{annual_spend:,.0f}"], textposition='inside',
+                textfont=dict(color=JGP_COLORS['white']),
+            ))
+            fig_roi.add_trace(go.Bar(
+                y=['Cost'], x=[saving_amount],
+                name=f'Saving ({saving_pct:.0f}%)',
+                orientation='h',
+                marker_color=JGP_COLORS['accent'],
+                text=[f"£{saving_amount:,.0f}"], textposition='inside',
+                textfont=dict(color=JGP_COLORS['deep_blue']),
+            ))
+            fig_roi.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+            fig_roi.update_layout(
+                barmode='stack',
+                height=180,
+                showlegend=True,
+                legend=dict(orientation='h', y=-0.4),
+                xaxis_title="GBP",
+                yaxis_title="",
+                margin=dict(t=20, b=40, l=40, r=20),
+            )
+            st.plotly_chart(fig_roi, use_container_width=True)
+            st.caption(chart_caption('spend_vs_ratecard', slot_dims))
+            report_figures['roi_cost'] = fig_roi
+
+            # Cost-per-apply by type — used in section 06 below + commentary
+            roi_by_type = client_df.groupby('occupation').agg(
+                total_applies=('applies', 'sum'),
+                job_count=('clicks', 'count')
+            ).reset_index()
+            roi_by_type = roi_by_type[roi_by_type['total_applies'] > 0]
+            roi_by_type['cost_allocated'] = annual_spend * (roi_by_type['job_count'] / roi_by_type['job_count'].sum())
+            roi_by_type['cost_per_apply'] = roi_by_type['cost_allocated'] / roi_by_type['total_applies']
+            roi_by_type = roi_by_type.sort_values('cost_per_apply', ascending=True)
+
+            roi_commentary = generate_section_commentary('roi', {
+                'annual_spend': annual_spend,
+                'rate_card_price': rate_card_price,
+                'num_jobs': num_jobs,
+                'total_clicks': total_clicks,
+                'total_applies': total_applies_val,
+                'cost_per_job': cost_per_job,
+                'cost_per_view': cost_per_view,
+                'cost_per_apply': cost_per_apply,
+                'saving_pct': saving_pct,
+                'roi_by_type': roi_by_type if len(roi_by_type) > 0 else None,
+            })
+            st.markdown(commentary_panel(roi_commentary), unsafe_allow_html=True)
+        else:
+            st.markdown(
+                kpi_card_dark("Vacancies advertised", f"{num_jobs:,}",
+                              helper="Set annual spend in settings to see ROI analysis"),
+                unsafe_allow_html=True,
+            )
 
     # ===================================================================
     # SECTION 06: COST PER APPLY (cheapest/priciest + collapsible breakdown)
     # ===================================================================
     if annual_spend > 0 and roi_by_type is not None and len(roi_by_type) > 0:
-        st.markdown(
-            section_anchor('cpa') + section_eyebrow('06', 'Cost per apply'),
-            unsafe_allow_html=True,
-        )
-
-        cheapest = roi_by_type.head(3)
-        priciest = roi_by_type.tail(3).iloc[::-1]
-
-        col_cheap, col_pricey = st.columns(2)
-        with col_cheap:
-            cheapest_html = '<div class="cpa-list"><h4>Cheapest occupations</h4><ol>'
-            for _, row in cheapest.iterrows():
-                cheapest_html += (
-                    f'<li><span class="cpa-label">{row["occupation"]}</span>'
-                    f'<span class="cpa-value">£{row["cost_per_apply"]:,.2f}</span></li>'
-                )
-            cheapest_html += '</ol></div>'
-            st.markdown(cheapest_html, unsafe_allow_html=True)
-        with col_pricey:
-            pricey_html = '<div class="cpa-list"><h4>Priciest occupations</h4><ol>'
-            for _, row in priciest.iterrows():
-                pricey_html += (
-                    f'<li><span class="cpa-label">{row["occupation"]}</span>'
-                    f'<span class="cpa-value">£{row["cost_per_apply"]:,.2f}</span></li>'
-                )
-            pricey_html += '</ol></div>'
-            st.markdown(pricey_html, unsafe_allow_html=True)
-
-        with st.expander("Full cost-per-apply breakdown", expanded=False):
-            fig_cpa = go.Figure()
-            fig_cpa.add_trace(go.Bar(
-                y=roi_by_type['occupation'], x=roi_by_type['cost_per_apply'],
-                orientation='h', marker_color=JGP_COLORS['primary'],
-                text=roi_by_type['cost_per_apply'].apply(lambda x: f"£{x:,.2f}"),
-                textposition='outside'
-            ))
-            fig_cpa.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-            fig_cpa.update_layout(
-                height=max(300, len(roi_by_type) * 35),
-                xaxis_title="Cost per apply (GBP)", yaxis_title="",
+        with st.container(border=True):
+            st.markdown(
+                section_anchor('cpa')
+                + section_eyebrow('06', 'Cost per apply', short='Cost per apply')
+                + f'<p class="client-section-intro">{CHART_EXPLAINERS["section_06_intro"]}</p>'
+                + '<hr class="client-section-divider" />',
+                unsafe_allow_html=True,
             )
-            st.plotly_chart(fig_cpa, use_container_width=True)
-            st.caption(chart_caption('cost_per_app_by_occupation', slot_dims))
-            report_figures['roi_cpa'] = fig_cpa
+
+            cheapest = roi_by_type.head(3)
+            priciest = roi_by_type.tail(3).iloc[::-1]
+
+            col_cheap, col_pricey = st.columns(2)
+            with col_cheap:
+                cheapest_html = '<div class="cpa-list"><h4>Cheapest occupations</h4><ol>'
+                for _, row in cheapest.iterrows():
+                    cheapest_html += (
+                        f'<li><span class="cpa-label">{row["occupation"]}</span>'
+                        f'<span class="cpa-value">£{row["cost_per_apply"]:,.2f}</span></li>'
+                    )
+                cheapest_html += '</ol></div>'
+                st.markdown(cheapest_html, unsafe_allow_html=True)
+            with col_pricey:
+                pricey_html = '<div class="cpa-list"><h4>Priciest occupations</h4><ol>'
+                for _, row in priciest.iterrows():
+                    pricey_html += (
+                        f'<li><span class="cpa-label">{row["occupation"]}</span>'
+                        f'<span class="cpa-value">£{row["cost_per_apply"]:,.2f}</span></li>'
+                    )
+                pricey_html += '</ol></div>'
+                st.markdown(pricey_html, unsafe_allow_html=True)
+
+            with st.expander("Full cost-per-apply breakdown", expanded=False):
+                fig_cpa = go.Figure()
+                fig_cpa.add_trace(go.Bar(
+                    y=roi_by_type['occupation'], x=roi_by_type['cost_per_apply'],
+                    orientation='h', marker_color=JGP_COLORS['primary'],
+                    text=roi_by_type['cost_per_apply'].apply(lambda x: f"£{x:,.2f}"),
+                    textposition='outside'
+                ))
+                fig_cpa.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+                fig_cpa.update_layout(
+                    height=max(300, len(roi_by_type) * 35),
+                    xaxis_title="Cost per apply (GBP)", yaxis_title="",
+                )
+                st.plotly_chart(fig_cpa, use_container_width=True)
+                st.caption(chart_caption('cost_per_app_by_occupation', slot_dims))
+                report_figures['roi_cpa'] = fig_cpa
 
     # ===================================================================
     # SECTION 07: SALARY BENCHMARKS (existing top-10 occupations)
@@ -1324,567 +1379,579 @@ def render_client_report(df, media_df=None):
     # market salary distribution as a histogram and overlay three reference
     # means: client, national, regional (client's HQ region). Mirrors the
     # salary-tab histogram pattern (views/salary.py:185-239) per occupation.
-    st.markdown(
-        section_anchor('salary') + section_eyebrow('07', 'Salary benchmarks'),
-        unsafe_allow_html=True,
-    )
-
-    # Persistent across the conditional branches so the commentary generator
-    # downstream can pick them up (None when section is skipped).
-    salary_per_occ = None
-    salary_client_region = None
-
-    client_with_salary = client_df[client_df.get('has_salary_data', False) == True]
-
-    if len(client_with_salary) == 0:
-        st.info(
-            "No salary data is available for this client's vacancies in the "
-            "selected period — salary benchmark omitted."
+    with st.container(border=True):
+        st.markdown(
+            section_anchor('salary')
+            + section_eyebrow('07', 'Salary benchmarks', short='Salaries')
+            + f'<p class="client-section-intro">{CHART_EXPLAINERS["section_07_intro"]}</p>'
+            + '<hr class="client-section-divider" />',
+            unsafe_allow_html=True,
         )
-    else:
-        occ_counts = client_with_salary['occupation'].dropna().value_counts()
-        qualifying = occ_counts[occ_counts >= 5]
-        top_occupations = qualifying.head(10).index.tolist()
 
-        if len(top_occupations) == 0:
+        # Persistent across the conditional branches so the commentary generator
+        # downstream can pick them up (None when section is skipped).
+        salary_per_occ = None
+        salary_client_region = None
+
+        client_with_salary = client_df[client_df.get('has_salary_data', False) == True]
+
+        if len(client_with_salary) == 0:
             st.info(
-                "No occupations have at least 5 vacancies with salary data for "
-                "this client in the selected period — salary benchmark needs "
-                "≥5 priced roles per occupation to be meaningful."
+                "No salary data is available for this client's vacancies in the "
+                "selected period — salary benchmark omitted."
             )
         else:
-            # Look up client HQ region (None for multi-site / central-gov clients)
-            hq_map = load_client_hq_regions()
-            client_region = hq_map.get(selected_client.lower().strip())
+            occ_counts = client_with_salary['occupation'].dropna().value_counts()
+            qualifying = occ_counts[occ_counts >= 5]
+            top_occupations = qualifying.head(10).index.tolist()
 
-            # Pre-build the regional market subset once. Compare on
-            # lower-stripped strings so canonical/raw spelling differences
-            # between primary_uk_region and client_hq_addresses don't drop
-            # the line silently.
-            df_regional_market = None
-            if client_region and 'primary_uk_region' in df.columns:
-                norm = client_region.strip().lower()
-                df_regional_market = df[
-                    (df.get('has_salary_data', False) == True)
-                    & (df['primary_uk_region'].fillna('').str.strip().str.lower() == norm)
+            if len(top_occupations) == 0:
+                st.info(
+                    "No occupations have at least 5 vacancies with salary data for "
+                    "this client in the selected period — salary benchmark needs "
+                    "≥5 priced roles per occupation to be meaningful."
+                )
+            else:
+                # Look up client HQ region (None for multi-site / central-gov clients)
+                hq_map = load_client_hq_regions()
+                client_region = hq_map.get(selected_client.lower().strip())
+
+                # Pre-build the regional market subset once. Compare on
+                # lower-stripped strings so canonical/raw spelling differences
+                # between primary_uk_region and client_hq_addresses don't drop
+                # the line silently.
+                df_regional_market = None
+                if client_region and 'primary_uk_region' in df.columns:
+                    norm = client_region.strip().lower()
+                    df_regional_market = df[
+                        (df.get('has_salary_data', False) == True)
+                        & (df['primary_uk_region'].fillna('').str.strip().str.lower() == norm)
+                    ]
+                    if len(df_regional_market) == 0:
+                        df_regional_market = None  # No samples → drop regional line
+
+                # Brand-kit reference lines: pink (you), bold green (national), deep blue (region)
+                client_color = JGP_COLORS['pink']        # #ffc4c4 — your mean
+                national_color = JGP_COLORS['accent']    # #e5ff6e — national mean
+                regional_color = JGP_COLORS['deep_blue'] # #240f45 — regional mean
+
+                per_occ = []
+                for occ in top_occupations:
+                    client_occ = client_with_salary[client_with_salary['occupation'] == occ]
+                    client_mean = client_occ['annual_mid_salary'].mean()
+
+                    market_occ = df[(df['occupation'] == occ) & (df.get('has_salary_data', False) == True)]
+                    market_salaries = market_occ['annual_mid_salary'].dropna()
+                    national_mean = market_salaries.mean() if len(market_salaries) else np.nan
+
+                    if df_regional_market is not None:
+                        reg_vals = df_regional_market[df_regional_market['occupation'] == occ]['annual_mid_salary'].dropna()
+                        regional_mean = reg_vals.mean() if len(reg_vals) >= 3 else np.nan
+                        regional_n = len(reg_vals)
+                    else:
+                        regional_mean = np.nan
+                        regional_n = 0
+
+                    per_occ.append({
+                        'occupation': occ,
+                        'client_n': len(client_occ),
+                        'market_n': len(market_salaries),
+                        'regional_n': regional_n,
+                        'market_salaries': market_salaries,
+                        'client_mean': client_mean,
+                        'national_mean': national_mean,
+                        'regional_mean': regional_mean,
+                    })
+
+                any_regional = any(not pd.isna(p['regional_mean']) for p in per_occ)
+
+                n_occ = len(per_occ)
+                n_cols = 2
+                n_rows = (n_occ + n_cols - 1) // n_cols  # ceil
+
+                subplot_titles = [
+                    f"{p['occupation']} — your n={p['client_n']}, market n={p['market_n']:,}"
+                    for p in per_occ
                 ]
-                if len(df_regional_market) == 0:
-                    df_regional_market = None  # No samples → drop regional line
 
-            # Brand-kit reference lines: pink (you), bold green (national), deep blue (region)
-            client_color = JGP_COLORS['pink']        # #ffc4c4 — your mean
-            national_color = JGP_COLORS['accent']    # #e5ff6e — national mean
-            regional_color = JGP_COLORS['deep_blue'] # #240f45 — regional mean
-
-            per_occ = []
-            for occ in top_occupations:
-                client_occ = client_with_salary[client_with_salary['occupation'] == occ]
-                client_mean = client_occ['annual_mid_salary'].mean()
-
-                market_occ = df[(df['occupation'] == occ) & (df.get('has_salary_data', False) == True)]
-                market_salaries = market_occ['annual_mid_salary'].dropna()
-                national_mean = market_salaries.mean() if len(market_salaries) else np.nan
-
-                if df_regional_market is not None:
-                    reg_vals = df_regional_market[df_regional_market['occupation'] == occ]['annual_mid_salary'].dropna()
-                    regional_mean = reg_vals.mean() if len(reg_vals) >= 3 else np.nan
-                    regional_n = len(reg_vals)
-                else:
-                    regional_mean = np.nan
-                    regional_n = 0
-
-                per_occ.append({
-                    'occupation': occ,
-                    'client_n': len(client_occ),
-                    'market_n': len(market_salaries),
-                    'regional_n': regional_n,
-                    'market_salaries': market_salaries,
-                    'client_mean': client_mean,
-                    'national_mean': national_mean,
-                    'regional_mean': regional_mean,
-                })
-
-            any_regional = any(not pd.isna(p['regional_mean']) for p in per_occ)
-
-            n_occ = len(per_occ)
-            n_cols = 2
-            n_rows = (n_occ + n_cols - 1) // n_cols  # ceil
-
-            subplot_titles = [
-                f"{p['occupation']} — your n={p['client_n']}, market n={p['market_n']:,}"
-                for p in per_occ
-            ]
-
-            fig_salary_occ = make_subplots(
-                rows=n_rows, cols=n_cols,
-                subplot_titles=subplot_titles,
-                vertical_spacing=0.12,
-                horizontal_spacing=0.10,
-            )
-
-            for i, p in enumerate(per_occ):
-                row = i // n_cols + 1
-                col = i % n_cols + 1
-
-                fig_salary_occ.add_trace(
-                    go.Histogram(
-                        x=p['market_salaries'],
-                        nbinsx=25,
-                        marker_color=JGP_COLORS['primary'],
-                        opacity=0.85,
-                        showlegend=False,
-                        hovertemplate='Salary: £%{x:,.0f}<br>Vacancies: %{y}<extra></extra>',
-                    ),
-                    row=row, col=col,
+                fig_salary_occ = make_subplots(
+                    rows=n_rows, cols=n_cols,
+                    subplot_titles=subplot_titles,
+                    vertical_spacing=0.12,
+                    horizontal_spacing=0.10,
                 )
 
-                if not pd.isna(p['client_mean']):
-                    fig_salary_occ.add_vline(
-                        x=p['client_mean'], line_width=2, line_color=client_color,
-                        row=row, col=col,
-                    )
-                if not pd.isna(p['national_mean']):
-                    fig_salary_occ.add_vline(
-                        x=p['national_mean'], line_width=2, line_color=national_color,
-                        row=row, col=col,
-                    )
-                if not pd.isna(p['regional_mean']):
-                    fig_salary_occ.add_vline(
-                        x=p['regional_mean'], line_width=2, line_color=regional_color,
+                for i, p in enumerate(per_occ):
+                    row = i // n_cols + 1
+                    col = i % n_cols + 1
+
+                    fig_salary_occ.add_trace(
+                        go.Histogram(
+                            x=p['market_salaries'],
+                            nbinsx=25,
+                            marker_color=JGP_COLORS['primary'],
+                            opacity=0.85,
+                            showlegend=False,
+                            hovertemplate='Salary: £%{x:,.0f}<br>Vacancies: %{y}<extra></extra>',
+                        ),
                         row=row, col=col,
                     )
 
-            # Legend traces — invisible scatters drawn once on subplot (1,1)
-            # so the figure-level legend has labelled rows for each line.
-            fig_salary_occ.add_trace(
-                go.Scatter(
-                    x=[None], y=[None], mode='lines',
-                    line=dict(color=client_color, width=2),
-                    name='Your mean',
-                ),
-                row=1, col=1,
-            )
-            fig_salary_occ.add_trace(
-                go.Scatter(
-                    x=[None], y=[None], mode='lines',
-                    line=dict(color=national_color, width=2),
-                    name='National mean',
-                ),
-                row=1, col=1,
-            )
-            if any_regional:
+                    if not pd.isna(p['client_mean']):
+                        fig_salary_occ.add_vline(
+                            x=p['client_mean'], line_width=2, line_color=client_color,
+                            row=row, col=col,
+                        )
+                    if not pd.isna(p['national_mean']):
+                        fig_salary_occ.add_vline(
+                            x=p['national_mean'], line_width=2, line_color=national_color,
+                            row=row, col=col,
+                        )
+                    if not pd.isna(p['regional_mean']):
+                        fig_salary_occ.add_vline(
+                            x=p['regional_mean'], line_width=2, line_color=regional_color,
+                            row=row, col=col,
+                        )
+
+                # Legend traces — invisible scatters drawn once on subplot (1,1)
+                # so the figure-level legend has labelled rows for each line.
                 fig_salary_occ.add_trace(
                     go.Scatter(
                         x=[None], y=[None], mode='lines',
-                        line=dict(color=regional_color, width=2),
-                        name=f"Regional mean ({client_region})",
+                        line=dict(color=client_color, width=2),
+                        name='Your mean',
                     ),
                     row=1, col=1,
                 )
-
-            # Two-call layout pattern avoids Python kwarg conflicts when
-            # overriding template keys (see lessons.md "Spreading
-            # JGP_PLOTLY_TEMPLATE['layout']").
-            fig_salary_occ.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-            fig_salary_occ.update_layout(
-                height=max(360, 240 * n_rows),
-                showlegend=True,
-                legend=dict(
-                    orientation='h',
-                    yanchor='bottom', y=1.04,
-                    xanchor='left', x=0,
-                    font=dict(size=12),
-                ),
-                bargap=0.05,
-            )
-            fig_salary_occ.update_xaxes(tickformat=',', tickprefix='£')
-            fig_salary_occ.update_annotations(font_size=12)
-
-            st.plotly_chart(fig_salary_occ, use_container_width=True)
-            st.caption(chart_caption('salary_by_occupation', slot_dims))
-
-            if not client_region:
-                st.caption(
-                    "_HQ region unavailable for this client — regional benchmark "
-                    "line omitted. (Common for central-government and multi-site "
-                    "bodies.)_"
+                fig_salary_occ.add_trace(
+                    go.Scatter(
+                        x=[None], y=[None], mode='lines',
+                        line=dict(color=national_color, width=2),
+                        name='National mean',
+                    ),
+                    row=1, col=1,
                 )
-            elif not any_regional:
-                st.caption(
-                    f"_No comparable salary data found in {client_region} for "
-                    f"these occupations — regional benchmark line omitted._"
+                if any_regional:
+                    fig_salary_occ.add_trace(
+                        go.Scatter(
+                            x=[None], y=[None], mode='lines',
+                            line=dict(color=regional_color, width=2),
+                            name=f"Regional mean ({client_region})",
+                        ),
+                        row=1, col=1,
+                    )
+
+                # Two-call layout pattern avoids Python kwarg conflicts when
+                # overriding template keys (see lessons.md "Spreading
+                # JGP_PLOTLY_TEMPLATE['layout']").
+                fig_salary_occ.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+                fig_salary_occ.update_layout(
+                    height=max(360, 240 * n_rows),
+                    showlegend=True,
+                    legend=dict(
+                        orientation='h',
+                        yanchor='bottom', y=1.04,
+                        xanchor='left', x=0,
+                        font=dict(size=12),
+                    ),
+                    bargap=0.05,
                 )
+                fig_salary_occ.update_xaxes(tickformat=',', tickprefix='£')
+                fig_salary_occ.update_annotations(font_size=12)
 
-            report_figures['salary_by_occupation'] = fig_salary_occ
+                st.plotly_chart(fig_salary_occ, use_container_width=True)
+                st.caption(chart_caption('salary_by_occupation', slot_dims))
 
-            # Expose for downstream commentary generator
-            salary_per_occ = per_occ
-            salary_client_region = client_region
+                if not client_region:
+                    st.caption(
+                        "_HQ region unavailable for this client — regional benchmark "
+                        "line omitted. (Common for central-government and multi-site "
+                        "bodies.)_"
+                    )
+                elif not any_regional:
+                    st.caption(
+                        f"_No comparable salary data found in {client_region} for "
+                        f"these occupations — regional benchmark line omitted._"
+                    )
+
+                report_figures['salary_by_occupation'] = fig_salary_occ
+
+                # Expose for downstream commentary generator
+                salary_per_occ = per_occ
+                salary_client_region = client_region
 
     # ===================================================================
     # SECTION 08: CHANNEL PERFORMANCE (existing media performance)
     # ===================================================================
-    st.markdown(
-        section_anchor('channels') + section_eyebrow('08', 'Channel performance'),
-        unsafe_allow_html=True,
-    )
-
-    cat_stats = None  # Initialise before conditional block so it's in scope for PDF commentary
-    if client_media is not None and len(client_media) > 0:
-        media_vac_count = client_media['entity_id_str'].nunique() if 'entity_id_str' in client_media.columns else len(client_media)
-        st.caption(f"Channel data covers **{media_vac_count:,}** of this client's vacancies.")
-
-        # Category-level summary
-        cat_stats = client_media.groupby('source_category').agg(
-            total_clicks=('clicks', 'sum'),
-            total_applies=('applies', 'sum'),
-            vacancy_count=('entity_id_str', 'nunique')
-        ).reset_index()
-        cat_stats['avg_views'] = cat_stats['total_clicks'] / cat_stats['vacancy_count']
-        cat_stats['avg_applies'] = cat_stats['total_applies'] / cat_stats['vacancy_count']
-        cat_stats['conversion_rate'] = (cat_stats['total_applies'] / cat_stats['total_clicks'].replace(0, np.nan) * 100).fillna(0)
-        cat_stats = cat_stats.sort_values('total_clicks', ascending=False)
-
-        # On-screen: branded HTML table with inline mini-bars per row.
-        max_views = cat_stats['avg_views'].max() or 1
-        max_applies = cat_stats['avg_applies'].max() or 1
-        BAR_BASE_PX = 140  # max bar width when value == column max
-
-        rows_html = []
-        for _, row in cat_stats.iterrows():
-            views_w = max(4, int(row['avg_views'] / max_views * BAR_BASE_PX))
-            applies_w = max(4, int(row['avg_applies'] / max_applies * BAR_BASE_PX))
-            rows_html.append(
-                '<tr>'
-                f'<td>{row["source_category"]}</td>'
-                f'<td class="channel-num">{int(row["vacancy_count"]):,}</td>'
-                f'<td><span class="channel-bar" style="width:{views_w}px"></span>'
-                f'<span class="channel-num">{row["avg_views"]:,.1f}</span></td>'
-                f'<td><span class="channel-bar applies" style="width:{applies_w}px"></span>'
-                f'<span class="channel-num">{row["avg_applies"]:,.1f}</span></td>'
-                f'<td class="channel-pct">{row["conversion_rate"]:,.1f}%</td>'
-                '</tr>'
-            )
-        table_html = (
-            '<table class="channel-table">'
-            '<thead><tr>'
-            '<th>Channel</th>'
-            '<th>Vacancies</th>'
-            '<th>Avg views</th>'
-            '<th>Avg applies</th>'
-            '<th>Conversion</th>'
-            '</tr></thead>'
-            f'<tbody>{"".join(rows_html)}</tbody>'
-            '</table>'
+    with st.container(border=True):
+        st.markdown(
+            section_anchor('channels')
+            + section_eyebrow('08', 'Channel performance', short='Channels')
+            + f'<p class="client-section-intro">{CHART_EXPLAINERS["section_08_intro"]}</p>'
+            + '<hr class="client-section-divider" />',
+            unsafe_allow_html=True,
         )
-        st.markdown(table_html, unsafe_allow_html=True)
-        st.caption(chart_caption('media_performance', slot_dims))
 
-        # Build the bar chart silently for the PPTX export — slot in the
-        # Renewals.pptx template still expects a fig.
-        fig_media = go.Figure()
-        fig_media.add_trace(go.Bar(
-            y=cat_stats['source_category'], x=cat_stats['avg_views'],
-            name='Avg views', orientation='h', marker_color=JGP_COLORS['primary']
-        ))
-        fig_media.add_trace(go.Bar(
-            y=cat_stats['source_category'], x=cat_stats['avg_applies'],
-            name='Avg applies', orientation='h', marker_color=JGP_COLORS['accent'],
-            textfont=dict(color=JGP_COLORS['deep_blue']),
-        ))
-        fig_media.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-        fig_media.update_layout(
-            barmode='group', height=max(350, len(cat_stats) * 40),
-            xaxis_title="Average per vacancy", yaxis_title="",
-            legend=dict(orientation='h', y=-0.15),
-        )
-        report_figures['media'] = fig_media
+        cat_stats = None  # Initialise before conditional block so it's in scope for PDF commentary
+        if client_media is not None and len(client_media) > 0:
+            media_vac_count = client_media['entity_id_str'].nunique() if 'entity_id_str' in client_media.columns else len(client_media)
+            st.caption(f"Channel data covers **{media_vac_count:,}** of this client's vacancies.")
 
-        media_commentary = generate_section_commentary('media', {
-            'cat_stats': cat_stats,
-            'client_name': selected_client,
-        })
-        st.markdown(commentary_panel(media_commentary), unsafe_allow_html=True)
-
-        # Source-level detail — kept as a Streamlit dataframe under an expander.
-        with st.expander("View by individual source", expanded=False):
-            media_stats = client_media.groupby(['source_category', 'source']).agg(
+            # Category-level summary
+            cat_stats = client_media.groupby('source_category').agg(
                 total_clicks=('clicks', 'sum'),
                 total_applies=('applies', 'sum'),
                 vacancy_count=('entity_id_str', 'nunique')
             ).reset_index()
-            media_stats['avg_views'] = media_stats['total_clicks'] / media_stats['vacancy_count']
-            media_stats['avg_applies'] = media_stats['total_applies'] / media_stats['vacancy_count']
-            media_stats['conversion_rate'] = (media_stats['total_applies'] / media_stats['total_clicks'].replace(0, np.nan) * 100).fillna(0)
-            media_stats = media_stats.sort_values('total_clicks', ascending=False)
-            detail_media = media_stats[['source_category', 'source', 'vacancy_count', 'avg_views', 'avg_applies', 'conversion_rate']].copy()
-            detail_media.columns = ['Channel', 'Source', 'Vacancies', 'Avg views', 'Avg applies', 'Conversion %']
-            detail_media['Avg views'] = detail_media['Avg views'].round(1)
-            detail_media['Avg applies'] = detail_media['Avg applies'].round(1)
-            detail_media['Conversion %'] = detail_media['Conversion %'].round(1)
-            st.dataframe(detail_media, use_container_width=True, hide_index=True)
-    else:
-        st.info("Channel-source data isn't available yet. Build the `dashboard_media_summary` BigQuery table to enable this section.")
+            cat_stats['avg_views'] = cat_stats['total_clicks'] / cat_stats['vacancy_count']
+            cat_stats['avg_applies'] = cat_stats['total_applies'] / cat_stats['vacancy_count']
+            cat_stats['conversion_rate'] = (cat_stats['total_applies'] / cat_stats['total_clicks'].replace(0, np.nan) * 100).fillna(0)
+            cat_stats = cat_stats.sort_values('total_clicks', ascending=False)
+
+            # On-screen: branded HTML table with inline mini-bars per row.
+            max_views = cat_stats['avg_views'].max() or 1
+            max_applies = cat_stats['avg_applies'].max() or 1
+            BAR_BASE_PX = 140  # max bar width when value == column max
+
+            rows_html = []
+            for _, row in cat_stats.iterrows():
+                views_w = max(4, int(row['avg_views'] / max_views * BAR_BASE_PX))
+                applies_w = max(4, int(row['avg_applies'] / max_applies * BAR_BASE_PX))
+                rows_html.append(
+                    '<tr>'
+                    f'<td>{row["source_category"]}</td>'
+                    f'<td class="channel-num">{int(row["vacancy_count"]):,}</td>'
+                    f'<td><span class="channel-bar" style="width:{views_w}px"></span>'
+                    f'<span class="channel-num">{row["avg_views"]:,.1f}</span></td>'
+                    f'<td><span class="channel-bar applies" style="width:{applies_w}px"></span>'
+                    f'<span class="channel-num">{row["avg_applies"]:,.1f}</span></td>'
+                    f'<td class="channel-pct">{row["conversion_rate"]:,.1f}%</td>'
+                    '</tr>'
+                )
+            table_html = (
+                '<table class="channel-table">'
+                '<thead><tr>'
+                '<th>Channel</th>'
+                '<th>Vacancies</th>'
+                '<th>Avg views</th>'
+                '<th>Avg applies</th>'
+                '<th>Conversion</th>'
+                '</tr></thead>'
+                f'<tbody>{"".join(rows_html)}</tbody>'
+                '</table>'
+            )
+            st.markdown(table_html, unsafe_allow_html=True)
+            st.caption(chart_caption('media_performance', slot_dims))
+
+            # Build the bar chart silently for the PPTX export — slot in the
+            # Renewals.pptx template still expects a fig.
+            fig_media = go.Figure()
+            fig_media.add_trace(go.Bar(
+                y=cat_stats['source_category'], x=cat_stats['avg_views'],
+                name='Avg views', orientation='h', marker_color=JGP_COLORS['primary']
+            ))
+            fig_media.add_trace(go.Bar(
+                y=cat_stats['source_category'], x=cat_stats['avg_applies'],
+                name='Avg applies', orientation='h', marker_color=JGP_COLORS['accent'],
+                textfont=dict(color=JGP_COLORS['deep_blue']),
+            ))
+            fig_media.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+            fig_media.update_layout(
+                barmode='group', height=max(350, len(cat_stats) * 40),
+                xaxis_title="Average per vacancy", yaxis_title="",
+                legend=dict(orientation='h', y=-0.15),
+            )
+            report_figures['media'] = fig_media
+
+            media_commentary = generate_section_commentary('media', {
+                'cat_stats': cat_stats,
+                'client_name': selected_client,
+            })
+            st.markdown(commentary_panel(media_commentary), unsafe_allow_html=True)
+
+            # Source-level detail — kept as a Streamlit dataframe under an expander.
+            with st.expander("View by individual source", expanded=False):
+                media_stats = client_media.groupby(['source_category', 'source']).agg(
+                    total_clicks=('clicks', 'sum'),
+                    total_applies=('applies', 'sum'),
+                    vacancy_count=('entity_id_str', 'nunique')
+                ).reset_index()
+                media_stats['avg_views'] = media_stats['total_clicks'] / media_stats['vacancy_count']
+                media_stats['avg_applies'] = media_stats['total_applies'] / media_stats['vacancy_count']
+                media_stats['conversion_rate'] = (media_stats['total_applies'] / media_stats['total_clicks'].replace(0, np.nan) * 100).fillna(0)
+                media_stats = media_stats.sort_values('total_clicks', ascending=False)
+                detail_media = media_stats[['source_category', 'source', 'vacancy_count', 'avg_views', 'avg_applies', 'conversion_rate']].copy()
+                detail_media.columns = ['Channel', 'Source', 'Vacancies', 'Avg views', 'Avg applies', 'Conversion %']
+                detail_media['Avg views'] = detail_media['Avg views'].round(1)
+                detail_media['Avg applies'] = detail_media['Avg applies'].round(1)
+                detail_media['Conversion %'] = detail_media['Conversion %'].round(1)
+                st.dataframe(detail_media, use_container_width=True, hide_index=True)
+        else:
+            st.info("Channel-source data isn't available yet. Build the `dashboard_media_summary` BigQuery table to enable this section.")
 
     # ===================================================================
     # SECTION 09: EXPORT (PowerPoint download)
     # ===================================================================
-    st.markdown(
-        section_anchor('export') + section_eyebrow('09', 'Export'),
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True):
+        st.markdown(
+            section_anchor('export')
+            + section_eyebrow('09', 'Export', short='Export')
+            + f'<p class="client-section-intro">{CHART_EXPLAINERS["section_09_intro"]}</p>'
+            + '<hr class="client-section-divider" />',
+            unsafe_allow_html=True,
+        )
 
-    # --- Compute additional stats needed for PPTX template ---
+        # --- Compute additional stats needed for PPTX template ---
 
-    # Slide 2: Top-right quadrant % (vacancies above benchmark on BOTH views and applies)
-    benchmarkable_df = scatter_df[scatter_df['category'] == 'Benchmarkable']
-    if len(benchmarkable_df) > 0:
-        top_quadrant_count = len(benchmarkable_df[
-            (benchmarkable_df['views_diff_pct'] > 0) & (benchmarkable_df['applies_diff_pct'] > 0)
-        ])
-        top_quadrant_pct = (top_quadrant_count / len(benchmarkable_df)) * 100
-    else:
-        top_quadrant_pct = 0
-
-    # Slide 2: Strongest job category (highest combined diff score, benchmarkable only)
-    if len(benchmarkable_df) > 0:
-        category_scores = benchmarkable_df.groupby('occupation').agg(
-            combined_score=('views_diff_pct', lambda s: s.mean() + benchmarkable_df.loc[s.index, 'applies_diff_pct'].mean()),
-            count=('views_diff_pct', 'count')
-        ).reset_index()
-        # Need at least 2 vacancies in occupation for the category to be considered "strongest"
-        category_scores = category_scores[category_scores['count'] >= 2]
-        if len(category_scores) > 0:
-            top_category = category_scores.sort_values('combined_score', ascending=False).iloc[0]['occupation']
+        # Slide 2: Top-right quadrant % (vacancies above benchmark on BOTH views and applies)
+        benchmarkable_df = scatter_df[scatter_df['category'] == 'Benchmarkable']
+        if len(benchmarkable_df) > 0:
+            top_quadrant_count = len(benchmarkable_df[
+                (benchmarkable_df['views_diff_pct'] > 0) & (benchmarkable_df['applies_diff_pct'] > 0)
+            ])
+            top_quadrant_pct = (top_quadrant_count / len(benchmarkable_df)) * 100
         else:
-            top_category = benchmarkable_df.iloc[0]['occupation'] if len(benchmarkable_df) > 0 else 'N/A'
-    else:
-        top_category = 'N/A'
+            top_quadrant_pct = 0
 
-    # Slide 5: Build the new charts (only if spend entered)
-    rate_card_total_val = rate_card_price * num_jobs if annual_spend > 0 else 0
-    saving_pct_val = ((rate_card_total_val - annual_spend) / rate_card_total_val * 100) if rate_card_total_val > 0 else 0
+        # Slide 2: Strongest job category (highest combined diff score, benchmarkable only)
+        if len(benchmarkable_df) > 0:
+            category_scores = benchmarkable_df.groupby('occupation').agg(
+                combined_score=('views_diff_pct', lambda s: s.mean() + benchmarkable_df.loc[s.index, 'applies_diff_pct'].mean()),
+                count=('views_diff_pct', 'count')
+            ).reset_index()
+            # Need at least 2 vacancies in occupation for the category to be considered "strongest"
+            category_scores = category_scores[category_scores['count'] >= 2]
+            if len(category_scores) > 0:
+                top_category = category_scores.sort_values('combined_score', ascending=False).iloc[0]['occupation']
+            else:
+                top_category = benchmarkable_df.iloc[0]['occupation'] if len(benchmarkable_df) > 0 else 'N/A'
+        else:
+            top_category = 'N/A'
 
-    if annual_spend > 0:
-        # Stacked bar: Your Spend (bottom) + Saving (top) = Rate Card Total
-        saving_amount = max(rate_card_total_val - annual_spend, 0)
-        fig_spend_stack = go.Figure()
-        fig_spend_stack.add_trace(go.Bar(
-            x=['Total Value'],
-            y=[annual_spend],
-            name='Your Spend',
-            marker_color=JGP_COLORS['primary'],
-            text=[f"£{annual_spend:,.0f}"],
-            textposition='inside',
-            textfont=dict(color='white', size=14),
-            width=0.7,
-        ))
-        fig_spend_stack.add_trace(go.Bar(
-            x=['Total Value'],
-            y=[saving_amount],
-            name='Saving vs Rate Card',
-            marker_color=JGP_COLORS['accent'],
-            text=[f"£{saving_amount:,.0f}"],
-            textposition='inside',
-            textfont=dict(color=JGP_COLORS['deep_blue'], size=14),
-            width=0.7,
-        ))
-        fig_spend_stack.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-        fig_spend_stack.update_layout(
-            barmode='stack',
-            title=f"Your Spend vs Rate Card Value (Saving: {saving_pct_val:.0f}%)",
-            yaxis_title="GBP",
-            height=400,
-            bargap=0.05,
-            showlegend=True,
-            plot_bgcolor='rgba(0,0,0,0)',
-            legend=dict(orientation='h', y=-0.15),
-        )
-        report_figures['spend_vs_ratecard'] = fig_spend_stack
+        # Slide 5: Build the new charts (only if spend entered)
+        rate_card_total_val = rate_card_price * num_jobs if annual_spend > 0 else 0
+        saving_pct_val = ((rate_card_total_val - annual_spend) / rate_card_total_val * 100) if rate_card_total_val > 0 else 0
 
-    # Cost per apply by occupation chart (always built when spend > 0)
-    cpa_by_occ_fig = None
-    roi_by_type_full = None
-    if annual_spend > 0:
-        roi_by_type_full = client_df.groupby('occupation').agg(
-            total_applies=('applies', 'sum'),
-            job_count=('clicks', 'count')
-        ).reset_index()
-        roi_by_type_full = roi_by_type_full[roi_by_type_full['total_applies'] > 0]
-        if len(roi_by_type_full) > 0:
-            roi_by_type_full['cost_allocated'] = annual_spend * (roi_by_type_full['job_count'] / roi_by_type_full['job_count'].sum())
-            roi_by_type_full['cost_per_apply'] = roi_by_type_full['cost_allocated'] / roi_by_type_full['total_applies']
-            roi_by_type_full = roi_by_type_full.sort_values('cost_per_apply', ascending=True)
-
-            cpa_by_occ_fig = go.Figure()
-            cpa_by_occ_fig.add_trace(go.Bar(
-                y=roi_by_type_full['occupation'],
-                x=roi_by_type_full['cost_per_apply'],
-                orientation='h',
-                marker_color=JGP_COLORS['blue'],
-                text=roi_by_type_full['cost_per_apply'].apply(lambda x: f"£{x:,.2f}"),
-                textposition='outside',
-                textfont=dict(color=JGP_COLORS['deep_blue']),
+        if annual_spend > 0:
+            # Stacked bar: Your Spend (bottom) + Saving (top) = Rate Card Total
+            saving_amount = max(rate_card_total_val - annual_spend, 0)
+            fig_spend_stack = go.Figure()
+            fig_spend_stack.add_trace(go.Bar(
+                x=['Total Value'],
+                y=[annual_spend],
+                name='Your Spend',
+                marker_color=JGP_COLORS['primary'],
+                text=[f"£{annual_spend:,.0f}"],
+                textposition='inside',
+                textfont=dict(color='white', size=14),
+                width=0.7,
             ))
-            cpa_by_occ_fig.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
-            cpa_by_occ_fig.update_layout(
-                title="Cost per Apply by Occupation",
-                height=max(350, len(roi_by_type_full) * 32),
-                xaxis_title="Cost per Apply (GBP)",
-                yaxis_title="",
+            fig_spend_stack.add_trace(go.Bar(
+                x=['Total Value'],
+                y=[saving_amount],
+                name='Saving vs Rate Card',
+                marker_color=JGP_COLORS['accent'],
+                text=[f"£{saving_amount:,.0f}"],
+                textposition='inside',
+                textfont=dict(color=JGP_COLORS['deep_blue'], size=14),
+                width=0.7,
+            ))
+            fig_spend_stack.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+            fig_spend_stack.update_layout(
+                barmode='stack',
+                title=f"Your Spend vs Rate Card Value (Saving: {saving_pct_val:.0f}%)",
+                yaxis_title="GBP",
+                height=400,
+                bargap=0.05,
+                showlegend=True,
                 plot_bgcolor='rgba(0,0,0,0)',
+                legend=dict(orientation='h', y=-0.15),
             )
-            report_figures['cost_per_app_by_occupation'] = cpa_by_occ_fig
+            report_figures['spend_vs_ratecard'] = fig_spend_stack
 
-    # --- Build structured commentary for PPTX template ---
-    scatter_struct = generate_section_commentary_structured('benchmark_scatter', {
-        'total_count': len(scatter_df),
-        'benchmarkable_count': len(scatter_df[scatter_df['category'] == 'Benchmarkable']),
-        'zero_applies_count': len(scatter_df[scatter_df['category'].str.startswith('Zero')]),
-        'no_benchmark_count': len(scatter_df[scatter_df['category'] == 'Low Sample (No Benchmark)']),
-        'top_performers': top_performers,
-        'client_name': selected_client,
-    })
-    average_struct = generate_section_commentary_structured('benchmark_average', {
-        'client_avg_clicks': client_avg_clicks,
-        'benchmark_avg_clicks': benchmark_avg_clicks,
-        'client_avg_applies': client_avg_applies,
-        'benchmark_avg_applies': benchmark_avg_applies,
-        'num_jobs': len(client_df),
-        'client_name': selected_client,
-    })
-    postings_struct = generate_section_commentary_structured('postings', {
-        'total_jobs': len(client_df),
-        'total_applies': int(client_df['applies'].sum()),
-        'by_type': by_type,
-        'client_name': selected_client,
-    })
-    roi_struct = generate_section_commentary_structured('roi', {
-        'annual_spend': annual_spend,
-        'rate_card_total': rate_card_total_val,
-        'num_jobs': num_jobs,
-        'cost_per_apply': annual_spend / total_applies_val if total_applies_val > 0 else 0,
-        'saving_pct': saving_pct_val,
-        'roi_by_type': roi_by_type_full if (annual_spend > 0 and roi_by_type_full is not None and len(roi_by_type_full) > 0) else None,
-        'client_name': selected_client,
-    })
-    media_struct = generate_section_commentary_structured('media', {
-        'cat_stats': cat_stats,
-        'client_name': selected_client,
-    })
-    salary_struct = generate_section_commentary_structured('salary', {
-        'per_occ': salary_per_occ,
-        'client_name': selected_client,
-        'client_region': salary_client_region,
-    })
+        # Cost per apply by occupation chart (always built when spend > 0)
+        cpa_by_occ_fig = None
+        roi_by_type_full = None
+        if annual_spend > 0:
+            roi_by_type_full = client_df.groupby('occupation').agg(
+                total_applies=('applies', 'sum'),
+                job_count=('clicks', 'count')
+            ).reset_index()
+            roi_by_type_full = roi_by_type_full[roi_by_type_full['total_applies'] > 0]
+            if len(roi_by_type_full) > 0:
+                roi_by_type_full['cost_allocated'] = annual_spend * (roi_by_type_full['job_count'] / roi_by_type_full['job_count'].sum())
+                roi_by_type_full['cost_per_apply'] = roi_by_type_full['cost_allocated'] / roi_by_type_full['total_applies']
+                roi_by_type_full = roi_by_type_full.sort_values('cost_per_apply', ascending=True)
 
-    # --- Build report_metrics dict (matches template tag names) ---
-    report_metrics = {
-        # Slide 1
-        'client_name': selected_client,
-        'PERIOD_START': str(report_start),
-        'PERIOD_END': str(report_end),
+                cpa_by_occ_fig = go.Figure()
+                cpa_by_occ_fig.add_trace(go.Bar(
+                    y=roi_by_type_full['occupation'],
+                    x=roi_by_type_full['cost_per_apply'],
+                    orientation='h',
+                    marker_color=JGP_COLORS['blue'],
+                    text=roi_by_type_full['cost_per_apply'].apply(lambda x: f"£{x:,.2f}"),
+                    textposition='outside',
+                    textfont=dict(color=JGP_COLORS['deep_blue']),
+                ))
+                cpa_by_occ_fig.update_layout(**JGP_PLOTLY_TEMPLATE['layout'])
+                cpa_by_occ_fig.update_layout(
+                    title="Cost per Apply by Occupation",
+                    height=max(350, len(roi_by_type_full) * 32),
+                    xaxis_title="Cost per Apply (GBP)",
+                    yaxis_title="",
+                    plot_bgcolor='rgba(0,0,0,0)',
+                )
+                report_figures['cost_per_app_by_occupation'] = cpa_by_occ_fig
 
-        # Slide 2 stats
-        'stat_total_jobs': f"{num_jobs:,}",
-        'stat_top_quadrant_pct': f"{top_quadrant_pct:.0f}",
-        'stat_top_category': top_category,
+        # --- Build structured commentary for PPTX template ---
+        scatter_struct = generate_section_commentary_structured('benchmark_scatter', {
+            'total_count': len(scatter_df),
+            'benchmarkable_count': len(scatter_df[scatter_df['category'] == 'Benchmarkable']),
+            'zero_applies_count': len(scatter_df[scatter_df['category'].str.startswith('Zero')]),
+            'no_benchmark_count': len(scatter_df[scatter_df['category'] == 'Low Sample (No Benchmark)']),
+            'top_performers': top_performers,
+            'client_name': selected_client,
+        })
+        average_struct = generate_section_commentary_structured('benchmark_average', {
+            'client_avg_clicks': client_avg_clicks,
+            'benchmark_avg_clicks': benchmark_avg_clicks,
+            'client_avg_applies': client_avg_applies,
+            'benchmark_avg_applies': benchmark_avg_applies,
+            'num_jobs': len(client_df),
+            'client_name': selected_client,
+        })
+        postings_struct = generate_section_commentary_structured('postings', {
+            'total_jobs': len(client_df),
+            'total_applies': int(client_df['applies'].sum()),
+            'by_type': by_type,
+            'client_name': selected_client,
+        })
+        roi_struct = generate_section_commentary_structured('roi', {
+            'annual_spend': annual_spend,
+            'rate_card_total': rate_card_total_val,
+            'num_jobs': num_jobs,
+            'cost_per_apply': annual_spend / total_applies_val if total_applies_val > 0 else 0,
+            'saving_pct': saving_pct_val,
+            'roi_by_type': roi_by_type_full if (annual_spend > 0 and roi_by_type_full is not None and len(roi_by_type_full) > 0) else None,
+            'client_name': selected_client,
+        })
+        media_struct = generate_section_commentary_structured('media', {
+            'cat_stats': cat_stats,
+            'client_name': selected_client,
+        })
+        salary_struct = generate_section_commentary_structured('salary', {
+            'per_occ': salary_per_occ,
+            'client_name': selected_client,
+            'client_region': salary_client_region,
+        })
 
-        # Slide 2 commentary
-        'commentary_benchmark_intro': scatter_struct['intro'],
-        'commentary_benchmark_point_1': scatter_struct['point_1'],
-        'commentary_benchmark_point_2': scatter_struct['point_2'],
-        'commentary_benchmark_point_3': scatter_struct['point_3'],
+        # --- Build report_metrics dict (matches template tag names) ---
+        report_metrics = {
+            # Slide 1
+            'client_name': selected_client,
+            'PERIOD_START': str(report_start),
+            'PERIOD_END': str(report_end),
 
-        # Slide 3 stats
-        'stat_benchmark_average_views': f"{benchmark_avg_clicks:,.0f}",
-        'stat_your_jobs_average_views': f"{client_avg_clicks:,.0f}",
-        'stat_benchmark_average_applies': f"{benchmark_avg_applies:,.1f}",
-        'stat_your_jobs_average_applies': f"{client_avg_applies:,.1f}",
+            # Slide 2 stats
+            'stat_total_jobs': f"{num_jobs:,}",
+            'stat_top_quadrant_pct': f"{top_quadrant_pct:.0f}",
+            'stat_top_category': top_category,
 
-        # Slide 3 commentary
-        'commentary_average_intro': average_struct['intro'],
-        'commentary_average_point_1': average_struct['point_1'],
-        'commentary_average_point_2': average_struct['point_2'],
+            # Slide 2 commentary
+            'commentary_benchmark_intro': scatter_struct['intro'],
+            'commentary_benchmark_point_1': scatter_struct['point_1'],
+            'commentary_benchmark_point_2': scatter_struct['point_2'],
+            'commentary_benchmark_point_3': scatter_struct['point_3'],
 
-        # Slide 4 commentary
-        'commentary_postings_intro': postings_struct['intro'],
-        'commentary_postings_point_1': postings_struct['point_1'],
-        'commentary_postings_point_2': postings_struct['point_2'],
+            # Slide 3 stats
+            'stat_benchmark_average_views': f"{benchmark_avg_clicks:,.0f}",
+            'stat_your_jobs_average_views': f"{client_avg_clicks:,.0f}",
+            'stat_benchmark_average_applies': f"{benchmark_avg_applies:,.1f}",
+            'stat_your_jobs_average_applies': f"{client_avg_applies:,.1f}",
 
-        # Slide 5 stats (ROI)
-        'stat_cost_per_job': f"£{annual_spend / num_jobs:,.2f}" if (annual_spend > 0 and num_jobs > 0) else "—",
-        'stat_cost_per_view': f"£{annual_spend / total_clicks:,.2f}" if (annual_spend > 0 and total_clicks > 0) else "—",
-        'stat_cost_per_apply': f"£{annual_spend / total_applies_val:,.2f}" if (annual_spend > 0 and total_applies_val > 0) else "—",
+            # Slide 3 commentary
+            'commentary_average_intro': average_struct['intro'],
+            'commentary_average_point_1': average_struct['point_1'],
+            'commentary_average_point_2': average_struct['point_2'],
 
-        # Slide 5 commentary
-        'commentary_roi_intro': roi_struct['intro'],
-        'commentary_roi_point_1': roi_struct['point_1'],
-        'commentary_roi_point_2': roi_struct['point_2'],
+            # Slide 4 commentary
+            'commentary_postings_intro': postings_struct['intro'],
+            'commentary_postings_point_1': postings_struct['point_1'],
+            'commentary_postings_point_2': postings_struct['point_2'],
 
-        # Slide 6 commentary (Salary Benchmark)
-        'commentary_salary_intro': salary_struct['intro'],
-        'commentary_salary_point_1': salary_struct['point_1'],
-        'commentary_salary_point_2': salary_struct['point_2'],
-        'commentary_salary_point_3': salary_struct['point_3'],
+            # Slide 5 stats (ROI)
+            'stat_cost_per_job': f"£{annual_spend / num_jobs:,.2f}" if (annual_spend > 0 and num_jobs > 0) else "—",
+            'stat_cost_per_view': f"£{annual_spend / total_clicks:,.2f}" if (annual_spend > 0 and total_clicks > 0) else "—",
+            'stat_cost_per_apply': f"£{annual_spend / total_applies_val:,.2f}" if (annual_spend > 0 and total_applies_val > 0) else "—",
 
-        # Slide 7 commentary
-        'commentary_media_intro': media_struct['intro'],
-        'commentary_media_point_1': media_struct['point_1'],
-        'commentary_media_point_2': media_struct['point_2'],
-        'commentary_media_point_3': media_struct['point_3'],
+            # Slide 5 commentary
+            'commentary_roi_intro': roi_struct['intro'],
+            'commentary_roi_point_1': roi_struct['point_1'],
+            'commentary_roi_point_2': roi_struct['point_2'],
 
-        # Static chart explainers — sourced from module-level CHART_EXPLAINERS
-        # so on-screen captions and PPTX placeholders share one source of truth.
-        **{f'chart_explainer_{k}': v for k, v in CHART_EXPLAINERS.items()},
+            # Slide 6 commentary (Salary Benchmark)
+            'commentary_salary_intro': salary_struct['intro'],
+            'commentary_salary_point_1': salary_struct['point_1'],
+            'commentary_salary_point_2': salary_struct['point_2'],
+            'commentary_salary_point_3': salary_struct['point_3'],
 
-        # Slide 7 contact
-        'contact_name': contact_name or 'Your Account Manager',
-        'contact_title': contact_title or 'Account Director',
-        'contact_email': contact_email or 'team@jobsgopublic.com',
-        'contact_phone': contact_phone or '020 7427 8250',
-    }
+            # Slide 7 commentary
+            'commentary_media_intro': media_struct['intro'],
+            'commentary_media_point_1': media_struct['point_1'],
+            'commentary_media_point_2': media_struct['point_2'],
+            'commentary_media_point_3': media_struct['point_3'],
 
-    # --- Map template chart tags to figures ---
-    pptx_figures = {
-        'benchmark_scatter': report_figures.get('scatter'),
-        'benchmark_average': report_figures.get('benchmark_combined'),
-        'postings_by_type': report_figures.get('postings'),
-        'spend_vs_ratecard': report_figures.get('spend_vs_ratecard'),
-        'cost_per_app_by_occupation': report_figures.get('cost_per_app_by_occupation'),
-        'salary_by_occupation': report_figures.get('salary_by_occupation'),
-        'media_performance': report_figures.get('media'),
-    }
+            # Static chart explainers — sourced from module-level CHART_EXPLAINERS
+            # so on-screen captions and PPTX placeholders share one source of truth.
+            **{f'chart_explainer_{k}': v for k, v in CHART_EXPLAINERS.items()},
 
-    # --- Export CTA panel + download button ---
-    st.markdown(
-        export_cta_panel(
-            heading="Export this report",
-            lede=(
-                f"Download a branded PowerPoint version of the {selected_client} "
-                "report to share with the client or drop into a renewals deck. "
-                "All charts, KPIs and commentary are included; tweak any text in "
-                "PowerPoint, then File → Export → PDF for the final copy."
+            # Slide 7 contact
+            'contact_name': contact_name or 'Your Account Manager',
+            'contact_title': contact_title or 'Account Director',
+            'contact_email': contact_email or 'team@jobsgopublic.com',
+            'contact_phone': contact_phone or '020 7427 8250',
+        }
+
+        # --- Map template chart tags to figures ---
+        pptx_figures = {
+            'benchmark_scatter': report_figures.get('scatter'),
+            'benchmark_average': report_figures.get('benchmark_combined'),
+            'postings_by_type': report_figures.get('postings'),
+            'spend_vs_ratecard': report_figures.get('spend_vs_ratecard'),
+            'cost_per_app_by_occupation': report_figures.get('cost_per_app_by_occupation'),
+            'salary_by_occupation': report_figures.get('salary_by_occupation'),
+            'media_performance': report_figures.get('media'),
+        }
+
+        # --- Export CTA panel + download button ---
+        st.markdown(
+            export_cta_panel(
+                heading="Export this report",
+                lede=(
+                    f"Download a branded PowerPoint version of the {selected_client} "
+                    "report to share with the client or drop into a renewals deck. "
+                    "All charts, KPIs and commentary are included; tweak any text in "
+                    "PowerPoint, then File → Export → PDF for the final copy."
+                ),
             ),
-        ),
-        unsafe_allow_html=True,
-    )
-
-    template_path = 'Renewals.pptx'
-    try:
-        pptx_bytes = generate_client_report_pptx(report_metrics, pptx_figures, template_path)
-        st.download_button(
-            "Download PowerPoint report",
-            data=pptx_bytes,
-            file_name=f"advertising_report_{selected_client.replace(' ', '_')}_{report_start}_{report_end}.pptx",
-            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            type="primary"
+            unsafe_allow_html=True,
         )
-    except FileNotFoundError:
-        st.error(f"Template file not found at `{template_path}`. Make sure `Renewals.pptx` is in the project root.")
-    except Exception as e:
-        st.warning("PowerPoint generation requires `python-pptx` and `kaleido`.")
-        st.caption(f"Error: {type(e).__name__}: {e}")
+
+        template_path = 'Renewals.pptx'
+        try:
+            pptx_bytes = generate_client_report_pptx(report_metrics, pptx_figures, template_path)
+            st.download_button(
+                "Download PowerPoint report",
+                data=pptx_bytes,
+                file_name=f"advertising_report_{selected_client.replace(' ', '_')}_{report_start}_{report_end}.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                type="primary"
+            )
+        except FileNotFoundError:
+            st.error(f"Template file not found at `{template_path}`. Make sure `Renewals.pptx` is in the project root.")
+        except Exception as e:
+            st.warning("PowerPoint generation requires `python-pptx` and `kaleido`.")
+            st.caption(f"Error: {type(e).__name__}: {e}")
 
 
 def generate_client_report_pptx(metrics, figures, template_path):

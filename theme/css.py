@@ -650,6 +650,24 @@ def _build_css() -> str:
 
     .client-eyebrow .num {{ margin-right: 6px; }}
 
+    /* Subheaders inside the settings card (Cost & report settings, Contact details) */
+    .client-form-eyebrow {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 600;
+        font-size: 15px;
+        color: {c['deep_blue']};
+        margin: 18px 0 4px 0;
+        padding-top: 14px;
+        border-top: 1px dashed {c['border']};
+    }}
+
+    .client-form-eyebrow-meta {{
+        font-weight: 500;
+        font-size: 13px;
+        color: {c['text_muted']};
+        margin-left: 4px;
+    }}
+
     .client-h2 {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;

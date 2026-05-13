@@ -603,35 +603,36 @@ def render_client_report(df, media_df=None):
     state.setdefault('report_generated', False)
 
     if not state['report_settings_collapsed']:
-        # Settings form (replaces the original controls block)
-        st.markdown('<h2 class="client-h2">Client advertising report</h2>', unsafe_allow_html=True)
-        st.caption(
-            "Pick a client and reporting period, then generate a branded report you can share or export."
-        )
-
-        col_client, col_dates = st.columns(2)
-        with col_client:
-            orgs = sorted(df[org_col].dropna().unique())
-            orgs = [o for o in orgs if o and str(o).strip() not in ('', 'Unknown', 'nan')]
-            org_counts = df.groupby(org_col).size().to_dict()
-            st.selectbox(
-                "Select client",
-                orgs,
-                format_func=lambda name: f"{name} ({org_counts.get(name, 0):,} vacancies)",
-                key='report_client_name',
+        # Settings form — all fields visible inside one bordered card, two per row
+        with st.container(border=True):
+            st.markdown('<h2 class="client-h2">Client advertising report</h2>', unsafe_allow_html=True)
+            st.caption(
+                "Pick a client and reporting period, then generate a branded report you can share or export."
             )
-        with col_dates:
-            min_date = df['first_event_date'].dropna().min()
-            max_date = df['last_event_date'].dropna().max()
-            if pd.notna(min_date) and pd.notna(max_date):
-                min_d = min_date.date() if hasattr(min_date, 'date') else min_date
-                max_d = max_date.date() if hasattr(max_date, 'date') else max_date
-            else:
-                min_d = datetime.now().date() - timedelta(days=365)
-                max_d = datetime.now().date()
-            st.date_input("Report period", [min_d, max_d], key='report_dates')
 
-        with st.expander("Cost & contact details", expanded=False):
+            col_client, col_dates = st.columns(2)
+            with col_client:
+                orgs = sorted(df[org_col].dropna().unique())
+                orgs = [o for o in orgs if o and str(o).strip() not in ('', 'Unknown', 'nan')]
+                org_counts = df.groupby(org_col).size().to_dict()
+                st.selectbox(
+                    "Select client",
+                    orgs,
+                    format_func=lambda name: f"{name} ({org_counts.get(name, 0):,} vacancies)",
+                    key='report_client_name',
+                )
+            with col_dates:
+                min_date = df['first_event_date'].dropna().min()
+                max_date = df['last_event_date'].dropna().max()
+                if pd.notna(min_date) and pd.notna(max_date):
+                    min_d = min_date.date() if hasattr(min_date, 'date') else min_date
+                    max_d = max_date.date() if hasattr(max_date, 'date') else max_date
+                else:
+                    min_d = datetime.now().date() - timedelta(days=365)
+                    max_d = datetime.now().date()
+                st.date_input("Report period", [min_d, max_d], key='report_dates')
+
+            st.markdown('<div class="client-form-eyebrow">Cost &amp; report settings</div>', unsafe_allow_html=True)
             cost_col1, cost_col2 = st.columns(2)
             with cost_col1:
                 st.number_input(
@@ -650,16 +651,23 @@ def render_client_report(df, media_df=None):
                 key='report_include_self',
                 help="When unchecked, the selected client is excluded from the benchmark average (recommended for fair comparison)",
             )
-            st.markdown("**Contact details** — used in the hero band and the export deck")
-            st.text_input("Account manager", key='report_contact_name', placeholder="e.g. Jane Smith")
-            st.text_input("Title", key='report_contact_title', placeholder="e.g. Account Director")
-            st.text_input("Email", key='report_contact_email', placeholder="e.g. jane@jgp.co.uk")
-            st.text_input("Phone", key='report_contact_phone', placeholder="e.g. 020 7946 0958")
 
-        if st.button("Generate report", type="primary", key='report_generate'):
-            state['report_settings_collapsed'] = True
-            state['report_generated'] = True
-            st.rerun()
+            st.markdown('<div class="client-form-eyebrow">Contact details <span class="client-form-eyebrow-meta">(for PDF)</span></div>', unsafe_allow_html=True)
+            contact_col1, contact_col2 = st.columns(2)
+            with contact_col1:
+                st.text_input("Account manager", key='report_contact_name', placeholder="e.g. Jane Smith")
+            with contact_col2:
+                st.text_input("Title", key='report_contact_title', placeholder="e.g. Account Director")
+            contact_col3, contact_col4 = st.columns(2)
+            with contact_col3:
+                st.text_input("Email", key='report_contact_email', placeholder="e.g. jane@jgp.co.uk")
+            with contact_col4:
+                st.text_input("Phone", key='report_contact_phone', placeholder="e.g. 020 7946 0958")
+
+            if st.button("Generate report", type="primary", key='report_generate'):
+                state['report_settings_collapsed'] = True
+                state['report_generated'] = True
+                st.rerun()
 
     if not state['report_generated']:
         st.info("Pick a client and click **Generate report** to build the advertising report.")

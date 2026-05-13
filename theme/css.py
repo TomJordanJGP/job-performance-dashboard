@@ -195,6 +195,12 @@ def _build_css() -> str:
         border-radius: 8px;
         padding: 16px 20px;
         margin-bottom: 8px;
+        /* Stretch to match the tallest card in a column row. Content stays */
+        /* top-aligned; any extra vertical space falls to the bottom.       */
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
     }}
 
     .kpi-label {{
@@ -520,6 +526,15 @@ def _build_css() -> str:
         margin-right: 4px;
     }}
 
+    /* Streamlit bordered containers (st.container(border=True)) — used by the
+       settings card and the section 01 card. Match the hero's padding and
+       border colour so the three blocks read as one consistent family. */
+    [data-testid="stVerticalBlockBorderWrapper"] {{
+        border: 1px solid {c['border']} !important;
+        border-radius: 8px !important;
+        padding: 32px 36px !important;
+    }}
+
     /* Hero band */
     .client-hero {{
         background: {c['light_purple']};
@@ -650,7 +665,7 @@ def _build_css() -> str:
         font-weight: 600;
         font-size: 13px;
         color: {c['primary']};
-        margin: 0 0 8px 0;
+        margin: 0 0 2px 0;
     }}
 
     .client-eyebrow .num {{ margin-right: 6px; }}

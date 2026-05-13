@@ -526,13 +526,37 @@ def _build_css() -> str:
         margin-right: 4px;
     }}
 
-    /* Streamlit bordered containers (st.container(border=True)) — used by the
-       settings card and the section 01 card. Match the hero's padding and
-       border colour so the three blocks read as one consistent family. */
+    /* Streamlit bordered containers (st.container(border=True)) used by the
+       settings card and sections 02-09. Must visually match .client-section-card
+       (which wraps section 01's HTML blob) exactly — same background, border,
+       radius, padding, and outer margin. */
     [data-testid="stVerticalBlockBorderWrapper"] {{
+        background: {c['white']} !important;
         border: 1px solid {c['border']} !important;
         border-radius: 8px !important;
         padding: 32px 36px !important;
+        margin: 8px 0 24px 0 !important;
+        box-sizing: border-box;
+    }}
+
+    /* Streamlit's inner stVerticalBlock uses `width: calc(100% + 1rem)` with
+       negative margins to provide gutters in non-bordered contexts. Inside
+       a bordered card that pushes content past our padding. Reset to fit
+       the parent's content box exactly. */
+    [data-testid="stVerticalBlockBorderWrapper"] > div {{
+        width: 100% !important;
+        max-width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }}
+
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlock"] {{
+        width: 100% !important;
+        max-width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
     }}
 
     /* Section card — same border/padding/radius as the hero so the cards
@@ -755,7 +779,8 @@ def _build_css() -> str:
         scroll-margin-top: 80px;
     }}
 
-    .client-section-card .client-anchor {{
+    .client-section-card .client-anchor,
+    [data-testid="stVerticalBlockBorderWrapper"] .client-anchor {{
         margin-top: 0;
     }}
 

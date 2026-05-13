@@ -20,7 +20,6 @@ from pptx import Presentation
 from theme.colors import JGP_COLORS, JGP_PLOTLY_TEMPLATE
 from theme.components import (
     client_hero,
-    client_toc,
     commentary_panel,
     export_cta_panel,
     kpi_card,
@@ -772,15 +771,16 @@ def render_client_report(df, media_df=None):
         views_delta = hero_views_pct - 100
         applies_delta = hero_applies_pct - 100
         if views_delta >= 0 and applies_delta >= 0:
-            verb = "outperformed the market with"
+            verb = "outperformed the market"
         elif views_delta < 0 and applies_delta < 0:
-            verb = "underperformed the market with"
+            verb = "underperformed the market"
         else:
-            verb = "saw mixed market performance —"
+            verb = "saw mixed market performance"
         lede_perf = (
-            f" {verb} "
-            f"<strong>{views_delta:+.0f}% views</strong> and "
-            f"<strong>{applies_delta:+.0f}% applies</strong>"
+            f" {verb} on visibility "
+            f"(<strong>{views_delta:+.0f}% views</strong>) "
+            f"and engagement "
+            f"(<strong>{applies_delta:+.0f}% applies</strong>)"
         )
 
     lede_cost = ""
@@ -802,20 +802,6 @@ def render_client_report(df, media_df=None):
         client_hero(selected_client, period_str, lede, hero_num_jobs, am_name=contact_name),
         unsafe_allow_html=True,
     )
-
-    # --- In-page TOC (inline above the sections; sticky two-column layout to follow) ---
-    toc_items = [
-        ('01', 'headlines',  'Headline numbers'),
-        ('02', 'scatter',    'Per-vacancy benchmarking'),
-        ('03', 'benchmark',  'Performance vs market'),
-        ('04', 'postings',   'Postings & apply volume'),
-        ('05', 'roi',        'Advertising ROI'),
-        ('06', 'cpa',        'Cost per apply'),
-        ('07', 'salary',     'Salary benchmarks'),
-        ('08', 'channels',   'Channel performance'),
-        ('09', 'export',     'Export'),
-    ]
-    st.markdown(client_toc(toc_items), unsafe_allow_html=True)
 
     # Store all figures for PDF export
     report_figures = {}

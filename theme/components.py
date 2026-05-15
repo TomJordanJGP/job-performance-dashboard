@@ -23,7 +23,7 @@ def _read_logo(token: str) -> str:
     return (_REPO_ROOT / rel).read_text()
 
 
-def kpi_card(label, value, delta=None, delta_direction="neutral", quartiles=None, helper=None):
+def kpi_card(label, value, delta=None, delta_direction="neutral", quartiles=None, helper=None, tooltip=None):
     """Build a branded KPI card as HTML string.
 
     Args:
@@ -33,6 +33,8 @@ def kpi_card(label, value, delta=None, delta_direction="neutral", quartiles=None
         delta_direction: "positive", "negative", or "neutral".
         quartiles: Optional dict with 'top_25', 'middle_50', 'bottom_25'.
         helper: Optional helper line below the value (e.g. methodology note).
+        tooltip: Optional help text rendered as a `?` icon next to the label.
+            Hover shows the full explanation via the .info-icon CSS pattern.
     """
     delta_html = ""
     if delta:
@@ -61,9 +63,17 @@ def kpi_card(label, value, delta=None, delta_direction="neutral", quartiles=None
 
     helper_html = f'<div class="kpi-helper">{helper}</div>' if helper else ""
 
+    if tooltip:
+        from html import escape
+        tooltip_html = (
+            f'<span class="info-icon" data-tooltip="{escape(tooltip, quote=True)}">?</span>'
+        )
+    else:
+        tooltip_html = ''
+
     return (
         '<div class="kpi-card">'
-        f'<div class="kpi-label">{label}</div>'
+        f'<div class="kpi-label">{label}{tooltip_html}</div>'
         f'<div class="kpi-value">{value}</div>'
         f'{delta_html}'
         f'{quartile_html}'

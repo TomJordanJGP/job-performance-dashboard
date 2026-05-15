@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-from data.calculations import calculate_metrics, calculate_quartile_metrics
+from data.calculations import calculate_metrics, calculate_quartile_metrics, KPI_TOOLTIPS
 from data.filters import apply_filters_to_data, apply_filters_to_region_data
 from data.regions import get_country_for_region, COUNTRY_REGIONS
 from theme.components import kpi_card, page_header, filter_tags, section_header, branded_divider
@@ -52,7 +52,8 @@ def render_dashboard(df, daily_totals=None, region_df=None):
                 'top_25': _quartile_val(quartiles, 'top_25', 'num_vacancies'),
                 'middle_50': _quartile_val(quartiles, 'middle_50', 'num_vacancies'),
                 'bottom_25': _quartile_val(quartiles, 'bottom_25', 'num_vacancies'),
-            } if quartiles else None
+            } if quartiles else None,
+            tooltip=KPI_TOOLTIPS['Total Vacancies'],
         ), unsafe_allow_html=True)
     with col2:
         st.markdown(kpi_card(
@@ -61,7 +62,8 @@ def render_dashboard(df, daily_totals=None, region_df=None):
                 'top_25': _quartile_val(quartiles, 'top_25', 'total_clicks'),
                 'middle_50': _quartile_val(quartiles, 'middle_50', 'total_clicks'),
                 'bottom_25': _quartile_val(quartiles, 'bottom_25', 'total_clicks'),
-            } if quartiles else None
+            } if quartiles else None,
+            tooltip=KPI_TOOLTIPS['Total Clicks'],
         ), unsafe_allow_html=True)
     with col3:
         st.markdown(kpi_card(
@@ -70,7 +72,8 @@ def render_dashboard(df, daily_totals=None, region_df=None):
                 'top_25': _quartile_val(quartiles, 'top_25', 'total_applies'),
                 'middle_50': _quartile_val(quartiles, 'middle_50', 'total_applies'),
                 'bottom_25': _quartile_val(quartiles, 'bottom_25', 'total_applies'),
-            } if quartiles else None
+            } if quartiles else None,
+            tooltip=KPI_TOOLTIPS['Total Applies'],
         ), unsafe_allow_html=True)
 
     col4, col5, col6 = st.columns(3)
@@ -81,7 +84,8 @@ def render_dashboard(df, daily_totals=None, region_df=None):
                 'top_25': f"{round(quartiles['top_25']['apply_click_ratio'])}%",
                 'middle_50': f"{round(quartiles['middle_50']['apply_click_ratio'])}%",
                 'bottom_25': f"{round(quartiles['bottom_25']['apply_click_ratio'])}%",
-            } if quartiles else None
+            } if quartiles else None,
+            tooltip=KPI_TOOLTIPS['Apply/Click Rate'],
         ), unsafe_allow_html=True)
     with col5:
         st.markdown(kpi_card(
@@ -90,7 +94,8 @@ def render_dashboard(df, daily_totals=None, region_df=None):
                 'top_25': _fmt(quartiles['top_25']['clicks_per_vacancy']),
                 'middle_50': _fmt(quartiles['middle_50']['clicks_per_vacancy']),
                 'bottom_25': _fmt(quartiles['bottom_25']['clicks_per_vacancy']),
-            } if quartiles else None
+            } if quartiles else None,
+            tooltip=KPI_TOOLTIPS['Avg Clicks / Vacancy'],
         ), unsafe_allow_html=True)
     with col6:
         st.markdown(kpi_card(
@@ -99,7 +104,8 @@ def render_dashboard(df, daily_totals=None, region_df=None):
                 'top_25': _fmt(quartiles['top_25']['applies_per_vacancy']),
                 'middle_50': _fmt(quartiles['middle_50']['applies_per_vacancy']),
                 'bottom_25': _fmt(quartiles['bottom_25']['applies_per_vacancy']),
-            } if quartiles else None
+            } if quartiles else None,
+            tooltip=KPI_TOOLTIPS['Avg Applies / Vacancy'],
         ), unsafe_allow_html=True)
 
     st.markdown(branded_divider(), unsafe_allow_html=True)

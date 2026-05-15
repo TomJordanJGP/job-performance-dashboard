@@ -3,6 +3,44 @@
 import numpy as np
 
 
+# Tooltip copy for the six KPI tiles shared by the Dashboard and Performance
+# tabs. Colocated with the calculations so the explanation and the formula
+# never drift apart. The Low / Mid / Top 25% bands are always defined by
+# clicks across every tile (see calculate_quartile_metrics) — the tooltips
+# call that out explicitly so a reader doesn't assume each tile re-banks by
+# its own metric.
+KPI_TOOLTIPS = {
+    'Total Vacancies': (
+        "Count of unique vacancies with at least one event in the period. "
+        "The Low / Mid / Top bands rank vacancies by clicks and count how "
+        "many fall in each band."
+    ),
+    'Total Clicks': (
+        "Sum of detail-page clicks across all vacancies. "
+        "Bands rank vacancies by clicks and sum each band's clicks."
+    ),
+    'Total Applies': (
+        "Sum of apply-button clicks. Bands rank vacancies by clicks "
+        "(not applies) and sum each band's applies — so 'Top 25%' is the "
+        "quarter with the most clicks, useful for asking whether high-"
+        "traffic vacancies actually convert."
+    ),
+    'Apply/Click Rate': (
+        "Applies ÷ Clicks × 100 — visitor-to-applicant conversion. "
+        "Bands rank vacancies by clicks and compute each band's rate."
+    ),
+    'Avg Clicks / Vacancy': (
+        "Total clicks ÷ total vacancies. Bands rank vacancies by clicks "
+        "and show each band's average. A wide Top vs Low gap means traffic "
+        "is concentrated on a small slice of postings."
+    ),
+    'Avg Applies / Vacancy': (
+        "Total applies ÷ total vacancies. Bands rank vacancies by clicks "
+        "(not applies) and show each band's per-vacancy apply count."
+    ),
+}
+
+
 def remove_outliers_iqr(data):
     """Remove outliers using IQR (Interquartile Range) method."""
     if len(data) < 4:

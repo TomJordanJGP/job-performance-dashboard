@@ -88,8 +88,6 @@ def _build_css() -> str:
         color: {c['white']};
         font-family: 'DM Sans', sans-serif;
         font-weight: 500;
-        height: 30px;
-        padding: 4px 12px;
         border-radius: 6px;
         transition: all 200ms ease;
     }}

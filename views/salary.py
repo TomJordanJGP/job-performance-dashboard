@@ -185,9 +185,17 @@ def render_salary(df, region_df=None):
         col_chart, col_stats = st.columns([3, 1])
 
         with col_chart:
+            # P00-P95 viewport clipping: show min up to 95th percentile, drop
+            # the top 5% of outliers from the bars (and the bin computation).
+            # Means + the user's input salary are computed on the full series
+            # and stay where they are — the visible range widens via vline-
+            # safety if any of them falls outside the percentile window.
+            p95 = mid_series.quantile(0.95)
+            clipped = mid_series[mid_series <= p95]
+
             fig = go.Figure()
             fig.add_trace(go.Histogram(
-                x=mid_series,
+                x=clipped,
                 nbinsx=30,
                 marker_color=JGP_COLORS['primary'],
                 opacity=0.85,
@@ -202,6 +210,12 @@ def render_salary(df, region_df=None):
             fig.add_vline(x=input_salary, line_width=3, line_color=your_color)
             fig.add_vline(x=stats['median'], line_width=2, line_color=median_color)
             fig.add_vline(x=stats['mean'], line_width=2, line_color=mean_color)
+
+            references = [input_salary, stats['median'], stats['mean']]
+            lo = min(mid_series.min(), *references)
+            hi = max(p95, *references)
+            pad = (hi - lo) * 0.05 if hi > lo else max(hi * 0.05, 1)
+            fig.update_xaxes(range=[lo - pad, hi + pad])
 
             # Legend entries (invisible traces for the vlines)
             fig.add_trace(go.Scatter(

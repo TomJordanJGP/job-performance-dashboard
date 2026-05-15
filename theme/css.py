@@ -200,7 +200,7 @@ def _build_css() -> str:
         height: 100%;
         display: flex;
         flex-direction: column;
-        align-items: flex-start;
+        align-items: stretch;
     }}
 
     .kpi-label {{

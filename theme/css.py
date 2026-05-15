@@ -88,6 +88,7 @@ def _build_css() -> str:
         font-family: 'DM Sans', sans-serif;
         font-weight: 500;
         height: 40px;
+        min-height: 40px;
         padding: 12px 4px;
         border-radius: 6px;
         box-sizing: border-box;

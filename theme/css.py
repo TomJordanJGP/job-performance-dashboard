@@ -79,22 +79,22 @@ def _build_css() -> str:
         color: {c['deep_blue']} !important;
     }}
 
-    /* Sidebar primary button — brand-kit pill: bold green on deep blue */
+    /* Sidebar primary button — solid purple, matches the secondary button's
+       shape (6 px radius, default padding, weight 500) so Apply Filters and
+       Clear All sit side by side as a balanced pair. */
     [data-testid="stSidebar"] .stButton > button[kind="primary"] {{
-        background-color: {c['accent']};
-        border: none;
-        color: {c['deep_blue']};
+        background-color: {c['primary']};
+        border: 1px solid {c['primary']};
+        color: {c['white']};
         font-family: 'DM Sans', sans-serif;
-        font-weight: 700;
-        font-size: 15px;
-        min-height: 44px;
-        padding: 12px 22px;
-        border-radius: 999px;
-        transition: background-color 200ms ease;
+        font-weight: 500;
+        border-radius: 6px;
+        transition: all 200ms ease;
     }}
 
     [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {{
-        background-color: {c['light_green']};
+        background-color: {c['supporting']};
+        border-color: {c['supporting']};
     }}
 
     /* Sidebar refresh / secondary button */

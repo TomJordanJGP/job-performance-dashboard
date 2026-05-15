@@ -6,6 +6,7 @@ classes defined in `theme/css.py` — components stay structural, no inline hex
 literals here.
 """
 
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -216,13 +217,12 @@ def section_anchor(anchor_id):
 
 
 def client_hero(name, period, lede, vacancies, am_name=None):
-    """Render the hero band: light-purple, eyebrow + h1 + lede + meta row."""
+    """Render the hero band: light-purple, h1 + lede + meta row."""
     am_html = ''
     if am_name and str(am_name).strip():
         am_html = f'<div><dt>Account manager</dt><dd>{am_name}</dd></div>'
     return f'''
     <div class="client-hero">
-        <div class="hero-eyebrow">Client advertising report</div>
         <h1>{name}</h1>
         <p class="hero-lede">{lede}</p>
         <dl class="client-hero-meta">
@@ -264,28 +264,30 @@ def kpi_card_dark(label, value, helper=None):
 
 
 def commentary_panel(text, eyebrow="Commentary"):
-    """Beige callout placed under each section's chart with a brief explainer."""
+    """Beige callout placed under each section's chart with a brief explainer.
+
+    Commentary text uses markdown `**bold**` syntax (carried over from when it
+    was rendered through st.markdown). Convert to <strong> so it renders bold
+    inside the raw-HTML blob we now emit.
+    """
+    text_html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
     return (
         '<div class="commentary-panel">'
         f'<div class="commentary-eyebrow">{eyebrow}</div>'
-        f'<div>{text}</div>'
+        f'<div>{text_html}</div>'
         '</div>'
     )
 
 
-def status_grid(stats):
-    """Render a 2x2 status grid. `stats` is a list of dicts with keys label/value/help."""
-    cells = []
-    for s in stats:
-        help_html = f'<div class="status-help">{s["help"]}</div>' if s.get('help') else ''
-        cells.append(
-            '<div class="status-cell">'
-            f'<div class="status-label">{s["label"]}</div>'
-            f'<div class="status-value">{s["value"]}</div>'
-            f'{help_html}'
-            '</div>'
-        )
-    return f'<div class="status-grid">{"".join(cells)}</div>'
+def status_grid(stats, stacked=False):
+    """Render a grid of KPI cards. Default is 2-column; `stacked=True` switches
+    to a single column for narrow right-rail layouts. `stats` is a list of dicts
+    with keys label/value/help — each rendered via `kpi_card` so the cells share
+    the same visual treatment as the standalone KPI cards elsewhere in the report.
+    """
+    cells = [kpi_card(s['label'], s['value'], helper=s.get('help')) for s in stats]
+    modifier = ' status-grid--stacked' if stacked else ''
+    return f'<div class="status-grid{modifier}">{"".join(cells)}</div>'
 
 
 def client_toc(items):

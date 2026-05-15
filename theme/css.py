@@ -193,7 +193,7 @@ def _build_css() -> str:
         background: linear-gradient(135deg, {c['surface_warm']} 0%, {c['light_purple']} 100%);
         border-left: 4px solid {c['primary']};
         border-radius: 8px;
-        padding: 16px 20px;
+        padding: 16px;
         margin-bottom: 8px;
         /* Stretch to match the tallest card in a column row. Content stays */
         /* top-aligned; any extra vertical space falls to the bottom.       */
@@ -214,7 +214,7 @@ def _build_css() -> str:
     .kpi-value {{
         font-family: 'DM Sans', sans-serif;
         font-weight: 700;
-        font-size: 28px;
+        font-size: 38px;
         color: {c['deep_blue']};
         line-height: 1.2;
     }}
@@ -536,9 +536,169 @@ def _build_css() -> str:
         background: {c['white']} !important;
         border: 1px solid {c['border']} !important;
         border-radius: 8px !important;
-        padding: 32px 36px !important;
-        margin: 8px 0 24px 0 !important;
+        padding: 32px !important;
+        margin: 12px 0 12px 0 !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
         box-sizing: border-box;
+        overflow: hidden;
+    }}
+
+    /* Plotly chart container — bordered on the OUTER Streamlit wrapper (stPlotlyChart),
+       not Plotly's inner .plot-container.plotly. The inner div sizes to its content and
+       can scroll inside the column; if the border sat there it would scroll with the
+       content and appear/disappear. The outer wrapper is column-bounded and stable.
+
+       No padding: Plotly reads its parent's clientWidth (border-box, padding-inclusive)
+       to size the SVG canvas, so any CSS padding here leaks — the SVG ends up exactly
+       (padding × 2) px wider than the visible content area. The visual breathing room
+       between the chart content and the border lives inside the SVG via the template's
+       margin=dict(t=40, b=40, l=40, r=20) at theme/colors.py instead. */
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stPlotlyChart"] {{
+        box-shadow: inset 0 0 0 1px {c['border']};
+        border-radius: 8px;
+        overflow: hidden;
+    }}
+
+    /* Plotly sizing chain inside a section card.
+
+       Plotly nests 5 wrappers below stPlotlyChart and each one declares its own
+       width/height/position. By default Plotly auto-pins a 450px canvas which
+       leaves empty space inside the bordered area. Override every layer so the
+       chart canvas fills its bordered container and resizes with the column —
+       plotly's internal resize observer will redraw the chart once we hand it
+       a flexible container. */
+
+    /* The stElementContainer wrapping the chart picks up a pixel height from
+       Streamlit-Plotly during render; let it match its child instead. */
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stElementContainer"]:has([data-testid="stPlotlyChart"]) {{
+        height: auto !important;
+    }}
+
+    /* js-plotly-plot and .plot-container.plotly: fill stPlotlyChart's content box. */
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stPlotlyChart"] .js-plotly-plot,
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stPlotlyChart"] .plot-container.plotly {{
+        width: 100% !important;
+        height: 100% !important;
+    }}
+
+    /* .plot-container.plotly stays position:relative — it's the positioning
+       context for plotly's modebar (which is absolutely positioned). */
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stPlotlyChart"] .plot-container.plotly {{
+        position: relative !important;
+    }}
+
+    /* .svg-container and .main-svg are intentionally NOT forced to width/height
+       100% — doing so stretches the rendered SVG without telling Plotly to
+       recalculate its internal coordinate system, which lands chart elements
+       (e.g. the legend) at the wrong absolute positions. Plotly's own resize
+       observer redraws the SVG correctly once .plot-container.plotly above is
+       flexible; trust that path and let Plotly own the SVG dimensions. */
+
+    /* Modebar: pin to the top-right of the plot-container. Plotly already does
+       this but we re-assert in case our wrapper changes broke its inheritance. */
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stPlotlyChart"] .modebar-container {{
+        position: absolute !important;
+        top: 0 !important;
+        right: 0 !important;
+    }}
+
+    /* Flatten all Streamlit wrapper margins inside a section card so we get predictable
+       rhythm and nothing sits "off to the side". Covers the markdown/caption containers
+       (which have a -16px default bottom margin), plus the generic element wrappers and
+       the chart/column/row wrappers. */
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stMarkdownContainer"],
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stCaptionContainer"],
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stElementContainer"],
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stPlotlyChart"],
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stHorizontalBlock"],
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stColumn"] {{
+        margin: 0 !important;
+    }}
+
+    /* The `<p>` Streamlit renders inside stCaptionContainer keeps its own
+       Streamlit-emotion padding-bottom (16px) — zero it so the caption sits
+       flush below the chart with no phantom gap. */
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stCaptionContainer"] p {{
+        padding: 0 !important;
+        margin: 0 !important;
+    }}
+
+    /* Chart help text — give the caption a transparent 16px padding box so
+       the text aligns with the surrounding padded elements (rank-list,
+       commentary-panel, etc.) instead of butting right up against the
+       column's left edge. No background, no border. */
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stCaptionContainer"] {{
+        padding: 16px !important;
+    }}
+
+    /* Streamlit wraps every heading (h1–h6) the markdown processor sees in
+       stHeadingWithActionElements with its own padding (for the anchor-link
+       hover icon). Inside section cards we own the heading spacing via the
+       child h2/h4 rules — zero this wrapper's padding so it doesn't add a
+       phantom gap above/below our headings. */
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"]:first-child .client-eyebrow) [data-testid="stHeadingWithActionElements"] {{
+        padding: 0 !important;
+    }}
+
+    /* Inline tooltip icon — replaces the per-section chart explainer that used
+       to sit below each chart. Mirrors the look of Streamlit's help icon (the
+       one shown next to setting widgets). Hover shows the chart explainer text
+       via a CSS ::after popup (Streamlit's markdown processor strips the
+       native `title` attribute, so we render the tooltip ourselves). */
+    .info-icon {{
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: transparent;
+        border: 1px solid {c['text_muted']};
+        color: {c['text_muted']};
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1;
+        cursor: help;
+        margin-left: 8px;
+        vertical-align: middle;
+        text-decoration: none;
+    }}
+
+    .info-icon:hover {{
+        background: {c['primary']};
+        color: {c['white']};
+        border-color: {c['primary']};
+    }}
+
+    .info-icon::after {{
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 10px 12px;
+        background: {c['deep_blue']};
+        color: {c['white']};
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 1.45;
+        width: max-content;
+        max-width: 280px;
+        white-space: normal;
+        text-align: left;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.15s ease-in-out;
+        z-index: 1000;
+    }}
+
+    .info-icon:hover::after {{
+        opacity: 1;
+        visibility: visible;
     }}
 
     /* Section card — same border/padding/radius as the hero so the cards
@@ -576,28 +736,8 @@ def _build_css() -> str:
         background: {c['light_purple']};
         border: 1px solid {c['border']};
         border-radius: 8px;
-        padding: 32px 36px;
+        padding: 32px;
         margin: 8px 0 24px 0;
-    }}
-
-    .client-hero .hero-eyebrow {{
-        font-family: 'DM Sans', sans-serif;
-        font-weight: 600;
-        font-size: 13px;
-        color: {c['primary']};
-        margin-bottom: 8px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }}
-
-    .client-hero .hero-eyebrow::before {{
-        content: '';
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: {c['primary']};
-        display: inline-block;
     }}
 
     .client-hero h1 {{
@@ -606,7 +746,8 @@ def _build_css() -> str:
         font-size: 40px;
         line-height: 1.1;
         color: {c['deep_blue']};
-        margin: 0 0 12px 0;
+        margin: 0 0 16px 0;
+        padding: 0;
     }}
 
     .client-hero .hero-lede {{
@@ -614,7 +755,8 @@ def _build_css() -> str:
         font-size: 16px;
         line-height: 1.55;
         color: {c['text_secondary']};
-        margin: 0 0 24px 0;
+        margin: 0;
+        padding: 0 0 20px 0;
     }}
 
     .client-hero .hero-lede strong {{
@@ -743,12 +885,14 @@ def _build_css() -> str:
         font-size: 15px;
         line-height: 1.55;
         color: {c['text_secondary']};
-        margin: 0 0 12px 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
     }}
 
     /* Divider line between the section intro and the section content (KPI grid etc.) */
     .client-section-divider {{
-        margin: 0 !important;
+        margin: 16px 0 16px 0 !important;
         padding: 0 !important;
         border: 0 !important;
         border-top: 2px solid {c['border']} !important;
@@ -789,14 +933,20 @@ def _build_css() -> str:
         display: grid;
         grid-template-columns: repeat(2, 1fr);
         gap: 12px;
-        margin-top: 12px;
+        margin: 0 0 20px 0;
+    }}
+
+    /* Stacked variant — one column, cells flow vertically. Used in section 03
+       where the right rail is narrow and stats sit on top of each other. */
+    .status-grid.status-grid--stacked {{
+        grid-template-columns: 1fr;
     }}
 
     .status-cell {{
         background: {c['white']};
         border: 1px solid {c['border']};
         border-radius: 8px;
-        padding: 16px 18px;
+        padding: 16px;
     }}
 
     .status-cell .status-label {{
@@ -826,8 +976,8 @@ def _build_css() -> str:
     .commentary-panel {{
         background: {c['beige']};
         border-radius: 8px;
-        padding: 16px 20px;
-        margin: 12px 0;
+        padding: 16px;
+        margin: 0 0 12px 0;
         font-family: 'DM Sans', sans-serif;
         font-size: 14px;
         line-height: 1.55;
@@ -853,7 +1003,7 @@ def _build_css() -> str:
         background: {c['white']};
         border: 1px solid {c['border']};
         border-radius: 8px;
-        padding: 16px 20px;
+        padding: 16px;
     }}
 
     .cpa-list h4 {{
@@ -866,8 +1016,8 @@ def _build_css() -> str:
 
     .cpa-list ol {{
         list-style: none;
-        padding: 0;
-        margin: 0;
+        padding: 0 !important;
+        margin: 0 !important;
         counter-reset: cpa-rank;
     }}
 
@@ -900,6 +1050,80 @@ def _build_css() -> str:
         color: {c['deep_blue']};
     }}
 
+    /* Ranked multi-value list — section 04 top-10 occupations. Same DNA as
+       cpa-list (outer card, h4 title, OL counter for rank). 4 numeric columns
+       alongside the occupation name, with a column-header row above. The
+       numeric columns are equal-width and center-aligned. */
+    .rank-list {{
+        background: {c['white']};
+        border: 1px solid {c['border']};
+        border-radius: 8px;
+        padding: 16px;
+    }}
+
+    .rank-list h4 {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 700;
+        font-size: 14px;
+        color: {c['deep_blue']};
+        margin: 0;
+        padding: 0 0 16px 0;
+    }}
+
+    .rank-list__header {{
+        display: grid;
+        grid-template-columns: 24px 1fr 1fr 1fr 1fr 1fr;
+        gap: 12px;
+        padding: 0 0 4px 0;
+        margin: 0;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        color: {c['primary']};
+        border-bottom: 1px solid {c['border']};
+    }}
+
+    .rank-list__header .num {{
+        text-align: center;
+    }}
+
+    .rank-list__items {{
+        list-style: none;
+        padding: 0 !important;
+        margin: 0 !important;
+        counter-reset: ranklist;
+    }}
+
+    .rank-list__items li {{
+        counter-increment: ranklist;
+        display: grid;
+        grid-template-columns: 24px 1fr 1fr 1fr 1fr 1fr;
+        gap: 12px;
+        padding: 4px 0;
+        margin: 0;
+        border-bottom: 1px solid {c['light_purple']};
+        align-items: center;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 14px;
+        color: {c['deep_blue']};
+    }}
+
+    .rank-list__items li:last-child {{
+        border-bottom: none;
+    }}
+
+    .rank-list__items li::before {{
+        content: counter(ranklist);
+        font-weight: 700;
+        color: {c['primary']};
+        font-size: 14px;
+    }}
+
+    .rank-list__items .num {{
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+    }}
+
     /* Channel performance table — section 08 */
     .channel-table {{
         width: 100%;
@@ -930,6 +1154,45 @@ def _build_css() -> str:
         background: {c['surface_warm']};
     }}
 
+    /* Generic data table for the Client Report — used by section 04 (postings).
+       Same chrome as the channel table but tighter cells so taller occupation
+       lists fit without scrolling. Use class="num" on numeric cells/headers
+       for right-alignment + tabular-num spacing. */
+    .client-table {{
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 13px;
+        color: {c['deep_blue']};
+    }}
+
+    .client-table th {{
+        text-align: left;
+        padding: 10px 12px;
+        background: {c['surface_warm']};
+        color: {c['primary']};
+        font-weight: 600;
+        font-size: 12px;
+        border-bottom: 1px solid {c['border']};
+    }}
+
+    .client-table td {{
+        padding: 10px 12px;
+        border-bottom: 1px solid {c['border']};
+        vertical-align: middle;
+    }}
+
+    .client-table tbody tr:hover td {{
+        background: {c['surface_warm']};
+    }}
+
+    .client-table th.num,
+    .client-table td.num {{
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }}
+
     .channel-bar {{
         display: inline-block;
         height: 10px;
@@ -958,8 +1221,8 @@ def _build_css() -> str:
     .export-cta {{
         background: {c['deep_blue']};
         border-radius: 8px;
-        padding: 32px 36px;
-        margin: 32px 0 16px 0;
+        padding: 16px;
+        margin: 0;
         color: {c['white']};
         display: grid;
         grid-template-columns: 1fr auto;

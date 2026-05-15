@@ -79,17 +79,25 @@ def _build_css() -> str:
         color: {c['deep_blue']} !important;
     }}
 
-    /* Sidebar primary button — solid purple, matches the secondary button's
-       shape (6 px radius, default padding, weight 500) so Apply Filters and
-       Clear All sit side by side as a balanced pair. */
+    /* Sidebar buttons — Apply Filters (primary) and Clear All (secondary)
+       sit side by side. Both share geometry (40 px tall, 12 px vertical /
+       4 px horizontal padding, 6 px radius). The only difference is fill:
+       primary = solid purple, secondary = transparent with purple border. */
+    [data-testid="stSidebar"] .stButton > button[kind="primary"],
+    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {{
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 500;
+        height: 40px;
+        padding: 12px 4px;
+        border-radius: 6px;
+        box-sizing: border-box;
+        transition: all 200ms ease;
+    }}
+
     [data-testid="stSidebar"] .stButton > button[kind="primary"] {{
         background-color: {c['primary']};
         border: 1px solid {c['primary']};
         color: {c['white']};
-        font-family: 'DM Sans', sans-serif;
-        font-weight: 500;
-        border-radius: 6px;
-        transition: all 200ms ease;
     }}
 
     [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {{
@@ -97,15 +105,10 @@ def _build_css() -> str:
         border-color: {c['supporting']};
     }}
 
-    /* Sidebar refresh / secondary button */
     [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {{
         background-color: transparent;
         border: 1px solid {c['supporting']};
         color: {c['accent']};
-        font-family: 'DM Sans', sans-serif;
-        font-weight: 500;
-        border-radius: 6px;
-        transition: all 200ms ease;
     }}
 
     [data-testid="stSidebar"] .stButton > button:not([kind="primary"]):hover {{

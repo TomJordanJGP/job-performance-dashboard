@@ -1567,9 +1567,30 @@ def render_client_report(df, media_df=None):
                     row = i // n_cols + 1
                     col = i % n_cols + 1
 
+                    # Per-occupation P02-P98 viewport clipping. Means are
+                    # computed on the full distribution and stay where they
+                    # are — only the histogram bars and the x-axis range
+                    # honour the clipped window. Range widens to include any
+                    # mean that falls outside [P02, P98] so no vline hides.
+                    salaries = p['market_salaries']
+                    means_present = [
+                        m for m in (p['client_mean'], p['national_mean'], p['regional_mean'])
+                        if not pd.isna(m)
+                    ]
+                    if len(salaries) > 0:
+                        p02, p98 = np.percentile(salaries, [2, 98])
+                        lo = min([p02] + means_present)
+                        hi = max([p98] + means_present)
+                        pad = (hi - lo) * 0.05 if hi > lo else max(hi * 0.05, 1)
+                        x_range = [lo - pad, hi + pad]
+                        hist_data = salaries[(salaries >= p02) & (salaries <= p98)]
+                    else:
+                        x_range = None
+                        hist_data = salaries
+
                     fig_salary_occ.add_trace(
                         go.Histogram(
-                            x=p['market_salaries'],
+                            x=hist_data,
                             nbinsx=25,
                             marker_color=JGP_COLORS['primary'],
                             opacity=0.85,
@@ -1594,6 +1615,9 @@ def render_client_report(df, media_df=None):
                             x=p['regional_mean'], line_width=2, line_color=regional_color,
                             row=row, col=col,
                         )
+
+                    if x_range is not None:
+                        fig_salary_occ.update_xaxes(range=x_range, row=row, col=col)
 
                 # Legend traces — invisible scatters drawn once on subplot (1,1)
                 # so the figure-level legend has labelled rows for each line.

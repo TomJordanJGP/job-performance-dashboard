@@ -702,6 +702,21 @@ def render_client_report(df, media_df=None):
                 st.text_input("Phone", key='report_contact_phone', placeholder="e.g. 020 7946 0958")
 
             if st.button("Generate report", type="primary", key='report_generate'):
+                # Pin widget values to non-widget keys. Streamlit Cloud
+                # garbage-collects state entries for widgets that aren't
+                # rendered on a given run — so once the settings card
+                # collapses, the next rerun (e.g. when Download is clicked)
+                # can clear state['report_client_name'] and friends.
+                # Reading from _applied_* keys keeps the report stable.
+                state['_applied_client'] = state.get('report_client_name')
+                state['_applied_dates'] = state.get('report_dates')
+                state['_applied_spend'] = state.get('report_spend', 0.0)
+                state['_applied_rate_card'] = state.get('report_rate_card', 600.0)
+                state['_applied_include_self'] = bool(state.get('report_include_self', False))
+                state['_applied_contact_name'] = state.get('report_contact_name', '') or ''
+                state['_applied_contact_title'] = state.get('report_contact_title', '') or ''
+                state['_applied_contact_email'] = state.get('report_contact_email', '') or ''
+                state['_applied_contact_phone'] = state.get('report_contact_phone', '') or ''
                 state['report_settings_collapsed'] = True
                 state['report_generated'] = True
                 st.rerun()
@@ -710,19 +725,19 @@ def render_client_report(df, media_df=None):
         st.info("Pick a client and click **Generate report** to build the advertising report.")
         return
 
-    # --- Read form values from session state (persisted via widget keys) ---
-    selected_client = state.get('report_client_name')
+    # --- Read pinned form values ---
+    selected_client = state.get('_applied_client')
     if not selected_client:
         st.warning("No client selected. Open settings and pick one.")
         return
-    report_dates = state.get('report_dates', [])
-    annual_spend = float(state.get('report_spend', 0.0) or 0.0)
-    rate_card_price = float(state.get('report_rate_card', 600.0) or 0.0)
-    include_self = bool(state.get('report_include_self', False))
-    contact_name = state.get('report_contact_name', '') or ''
-    contact_title = state.get('report_contact_title', '') or ''
-    contact_email = state.get('report_contact_email', '') or ''
-    contact_phone = state.get('report_contact_phone', '') or ''
+    report_dates = state.get('_applied_dates', [])
+    annual_spend = float(state.get('_applied_spend', 0.0) or 0.0)
+    rate_card_price = float(state.get('_applied_rate_card', 600.0) or 0.0)
+    include_self = bool(state.get('_applied_include_self', False))
+    contact_name = state.get('_applied_contact_name', '') or ''
+    contact_title = state.get('_applied_contact_title', '') or ''
+    contact_email = state.get('_applied_contact_email', '') or ''
+    contact_phone = state.get('_applied_contact_phone', '') or ''
 
     if not report_dates or len(report_dates) < 2:
         st.warning("Please select a start and end date in settings.")
@@ -741,6 +756,19 @@ def render_client_report(df, media_df=None):
             )
         with col_edit:
             if st.button("Edit", key='report_edit'):
+                # Re-seed widget keys from the pinned values so the form
+                # opens pre-filled (Streamlit reads widget initial value
+                # from session_state at the start of the run that renders
+                # the widget).
+                state['report_client_name'] = state.get('_applied_client')
+                state['report_dates'] = state.get('_applied_dates')
+                state['report_spend'] = state.get('_applied_spend', 0.0)
+                state['report_rate_card'] = state.get('_applied_rate_card', 600.0)
+                state['report_include_self'] = bool(state.get('_applied_include_self', False))
+                state['report_contact_name'] = state.get('_applied_contact_name', '')
+                state['report_contact_title'] = state.get('_applied_contact_title', '')
+                state['report_contact_email'] = state.get('_applied_contact_email', '')
+                state['report_contact_phone'] = state.get('_applied_contact_phone', '')
                 state['report_settings_collapsed'] = False
                 st.rerun()
 
